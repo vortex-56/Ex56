@@ -1,0 +1,6 @@
+{
+  "name": "PlanMatrix",
+  "description": "Gestor visual matricial de proyectos, hábitos diarios, sub-actividades por sesiones, agrupación temática e importación/exportación.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
