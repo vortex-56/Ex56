@@ -12,7 +12,8 @@ import {
 import { 
   getDaysBetweenDates, 
   getTodayDateString, 
-  formatFriendlyDate 
+  formatFriendlyDate,
+  getClusterDatesForDate 
 } from './utils/dateUtils';
 import { TopBar } from './components/TopBar';
 import { MatrixGrid } from './components/MatrixGrid';
@@ -63,20 +64,23 @@ export default function App() {
   // Filters & selection
   const [activeFilterGroup, setActiveFilterGroup] = useState<string | null>(null);
   const [selectedActivityIds, setSelectedActivityIds] = useState<string[]>([]);
+  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
 
   // 1. Initial Load from LocalStorage
   useEffect(() => {
     const stored = getStoredProjects();
-    setProjects(stored);
-
-    const activeId = getActiveProjectId();
     if (stored.length > 0) {
+      setProjects(stored);
+      const activeId = getActiveProjectId();
       const found = stored.find(p => p.id === activeId) || stored[0];
       setCurrentProject(found);
       setActiveProjectId(found.id);
     } else {
-      // First time entrance: prompt user to create their project
-      setIsProjectModalOpen(true);
+      // First time entrance: load sample project with real interactive examples
+      const sample = createSampleProject();
+      setProjects([sample]);
+      setCurrentProject(sample);
+      setActiveProjectId(sample.id);
     }
   }, []);
 
@@ -161,6 +165,7 @@ export default function App() {
       setActiveProjectId(found.id);
       setHasUnsavedChanges(false);
       setSelectedActivityIds([]);
+      setSelectedGroupIds([]);
       setUndoStack([]); // Clear undo stack on project switch
       setRedoStack([]); // Clear redo stack on project switch
     }
@@ -174,6 +179,7 @@ export default function App() {
     setActiveProjectId(newProj.id);
     setHasUnsavedChanges(false);
     setSelectedActivityIds([]);
+    setSelectedGroupIds([]);
     setUndoStack([]);
     setRedoStack([]);
     setIsProjectModalOpen(false);
@@ -200,24 +206,34 @@ export default function App() {
     setActiveProjectId(sample.id);
     setHasUnsavedChanges(false);
     setSelectedActivityIds([]);
+    setSelectedGroupIds([]);
     setUndoStack([]);
     setRedoStack([]);
     setIsProjectModalOpen(false);
   };
 
-  // Activity Matrix Toggle Handlers
+  // Activity Matrix Toggle Handlers with day_clusters support
   const handleToggleCell = (activityId: string, subActivityId: string | null, dateStr: string) => {
     if (!currentProject) return;
     pushUndoSnapshot();
 
-    const logKey = `${activityId}_${subActivityId || 'main'}_${dateStr}`;
-    const nextLogs = { ...currentProject.completionLogs };
+    const activity = currentProject.activities.find(a => a.id === activityId);
+    const targetDates = activity?.scheduleType === 'day_clusters' && activity.clusterSize
+      ? getClusterDatesForDate(activity, dateStr)
+      : [dateStr];
 
-    if (nextLogs[logKey]) {
-      delete nextLogs[logKey];
-    } else {
-      nextLogs[logKey] = true;
-    }
+    const subKey = subActivityId || 'main';
+    const nextLogs = { ...currentProject.completionLogs };
+    const isCurrentlyChecked = !!nextLogs[`${activityId}_${subKey}_${dateStr}`];
+
+    targetDates.forEach(dStr => {
+      const key = `${activityId}_${subKey}_${dStr}`;
+      if (isCurrentlyChecked) {
+        delete nextLogs[key];
+      } else {
+        nextLogs[key] = true;
+      }
+    });
 
     const updatedProject: Project = {
       ...currentProject,
@@ -234,19 +250,25 @@ export default function App() {
     if (!currentProject || activity.subActivities.length === 0) return;
     pushUndoSnapshot();
 
+    const targetDates = activity.scheduleType === 'day_clusters' && activity.clusterSize
+      ? getClusterDatesForDate(activity, dateStr)
+      : [dateStr];
+
     const nextLogs = { ...currentProject.completionLogs };
     const allChecked = activity.subActivities.every(
       sub => !!nextLogs[`${activity.id}_${sub.id}_${dateStr}`]
     );
 
-    for (const sub of activity.subActivities) {
-      const key = `${activity.id}_${sub.id}_${dateStr}`;
-      if (allChecked) {
-        delete nextLogs[key];
-      } else {
-        nextLogs[key] = true;
+    targetDates.forEach(dStr => {
+      for (const sub of activity.subActivities) {
+        const key = `${activity.id}_${sub.id}_${dStr}`;
+        if (allChecked) {
+          delete nextLogs[key];
+        } else {
+          nextLogs[key] = true;
+        }
       }
-    }
+    });
 
     const updatedProject: Project = {
       ...currentProject,
@@ -259,12 +281,37 @@ export default function App() {
     saveProject(updatedProject);
   };
 
-  // Add / Edit Activity
-  const handleSaveActivity = (activityData: Activity) => {
+  const handleToggleGroupDay = (group: ActivityGroup, dateStr: string) => {
     if (!currentProject) return;
     pushUndoSnapshot();
+    const logKey = `group_${group.id}_main_${dateStr}`;
+    const nextLogs = { ...currentProject.completionLogs };
+    if (nextLogs[logKey]) {
+      delete nextLogs[logKey];
+    } else {
+      nextLogs[logKey] = true;
+    }
+    const updatedProject: Project = {
+      ...currentProject,
+      completionLogs: nextLogs,
+      updatedAt: new Date().toISOString(),
+    };
+    setCurrentProject(updatedProject);
+    setHasUnsavedChanges(true);
+    saveProject(updatedProject);
+  };
 
-    const currentActs = [...currentProject.activities];
+  // Add / Edit Activity
+  const handleSaveActivity = (activityData: Activity) => {
+    let proj = currentProject;
+    if (!proj) {
+      proj = createNewProject('Mi Proyecto');
+      setCurrentProject(proj);
+      setProjects([proj]);
+    }
+    pushUndoSnapshot();
+
+    const currentActs = [...proj.activities];
     const index = currentActs.findIndex(a => a.id === activityData.id);
 
     if (index >= 0) {
@@ -274,7 +321,7 @@ export default function App() {
     }
 
     const updatedProject: Project = {
-      ...currentProject,
+      ...proj,
       activities: currentActs,
       updatedAt: new Date().toISOString(),
     };
@@ -326,8 +373,27 @@ export default function App() {
     handleSaveActivity(updatedActivity);
   };
 
+  const handleToggleActivityCompletion = (activityId: string, isCompleted: boolean) => {
+    if (!currentProject) return;
+    pushUndoSnapshot();
+
+    const updatedActivities = currentProject.activities.map(a =>
+      a.id === activityId ? { ...a, isCompleted } : a
+    );
+
+    const updatedProject: Project = {
+      ...currentProject,
+      activities: updatedActivities,
+      updatedAt: new Date().toISOString(),
+    };
+
+    setCurrentProject(updatedProject);
+    setHasUnsavedChanges(true);
+    saveProject(updatedProject);
+  };
+
   // Groups Management
-  const handleCreateGroup = (name: string, color: string, code?: string): ActivityGroup => {
+  const handleCreateGroup = (name: string, color: string, code?: string, showBox?: boolean): ActivityGroup => {
     if (!currentProject) throw new Error('No active project');
     pushUndoSnapshot();
 
@@ -336,6 +402,7 @@ export default function App() {
       name,
       color,
       code: code?.trim().toUpperCase() || undefined,
+      showBox: showBox ?? false,
     };
     const updatedGroups = [...currentProject.groups, newGroup];
     const updatedProject = {
@@ -382,12 +449,15 @@ export default function App() {
     };
     setCurrentProject(updatedProject);
     if (activeFilterGroup === groupId) setActiveFilterGroup(null);
+    setSelectedGroupIds(prev => prev.filter(id => id !== groupId));
     setHasUnsavedChanges(true);
     saveProject(updatedProject);
   };
 
-  // Multi-select batch actions
+  // Multi-select batch actions & Mutual Exclusivity
   const handleToggleSelectActivity = (activityId: string) => {
+    // Mutual exclusivity: selecting activity unselects groups
+    setSelectedGroupIds([]);
     setSelectedActivityIds(prev =>
       prev.includes(activityId) ? prev.filter(id => id !== activityId) : [...prev, activityId]
     );
@@ -395,11 +465,20 @@ export default function App() {
 
   const handleToggleSelectAll = () => {
     if (!currentProject) return;
+    setSelectedGroupIds([]);
     if (selectedActivityIds.length === currentProject.activities.length) {
       setSelectedActivityIds([]);
     } else {
       setSelectedActivityIds(currentProject.activities.map(a => a.id));
     }
+  };
+
+  const handleToggleSelectGroup = (groupId: string) => {
+    // Mutual exclusivity: selecting group unselects activities
+    setSelectedActivityIds([]);
+    setSelectedGroupIds(prev =>
+      prev.includes(groupId) ? prev.filter(id => id !== groupId) : [...prev, groupId]
+    );
   };
 
   const handleBatchAssignGroup = (groupId: string | null) => {
@@ -446,6 +525,139 @@ export default function App() {
     const updatedProject = { ...currentProject, activities: nextActivities, updatedAt: new Date().toISOString() };
     setCurrentProject(updatedProject);
     setSelectedActivityIds([]);
+    setHasUnsavedChanges(true);
+    saveProject(updatedProject);
+  };
+
+  // Activity Reordering actions
+  const handleMoveActivitiesUp = () => {
+    if (!currentProject || selectedActivityIds.length === 0) return;
+    pushUndoSnapshot();
+    const list = [...currentProject.activities];
+    for (let i = 0; i < list.length; i++) {
+      if (selectedActivityIds.includes(list[i].id) && i > 0 && !selectedActivityIds.includes(list[i - 1].id)) {
+        const temp = list[i];
+        list[i] = list[i - 1];
+        list[i - 1] = temp;
+      }
+    }
+    const updatedProject = { ...currentProject, activities: list, updatedAt: new Date().toISOString() };
+    setCurrentProject(updatedProject);
+    setHasUnsavedChanges(true);
+    saveProject(updatedProject);
+  };
+
+  const handleMoveActivitiesToStart = () => {
+    if (!currentProject || selectedActivityIds.length === 0) return;
+    pushUndoSnapshot();
+    const selected = currentProject.activities.filter(a => selectedActivityIds.includes(a.id));
+    const unselected = currentProject.activities.filter(a => !selectedActivityIds.includes(a.id));
+    const updatedProject = { ...currentProject, activities: [...selected, ...unselected], updatedAt: new Date().toISOString() };
+    setCurrentProject(updatedProject);
+    setHasUnsavedChanges(true);
+    saveProject(updatedProject);
+  };
+
+  const handleMoveActivitiesDown = () => {
+    if (!currentProject || selectedActivityIds.length === 0) return;
+    pushUndoSnapshot();
+    const list = [...currentProject.activities];
+    for (let i = list.length - 1; i >= 0; i--) {
+      if (selectedActivityIds.includes(list[i].id) && i < list.length - 1 && !selectedActivityIds.includes(list[i + 1].id)) {
+        const temp = list[i];
+        list[i] = list[i + 1];
+        list[i + 1] = temp;
+      }
+    }
+    const updatedProject = { ...currentProject, activities: list, updatedAt: new Date().toISOString() };
+    setCurrentProject(updatedProject);
+    setHasUnsavedChanges(true);
+    saveProject(updatedProject);
+  };
+
+  const handleMoveActivitiesToEnd = () => {
+    if (!currentProject || selectedActivityIds.length === 0) return;
+    pushUndoSnapshot();
+    const selected = currentProject.activities.filter(a => selectedActivityIds.includes(a.id));
+    const unselected = currentProject.activities.filter(a => !selectedActivityIds.includes(a.id));
+    const updatedProject = { ...currentProject, activities: [...unselected, ...selected], updatedAt: new Date().toISOString() };
+    setCurrentProject(updatedProject);
+    setHasUnsavedChanges(true);
+    saveProject(updatedProject);
+  };
+
+  // Group Reordering actions
+  const handleMoveGroupsUp = () => {
+    if (!currentProject || selectedGroupIds.length === 0) return;
+    pushUndoSnapshot();
+    const list = [...currentProject.groups];
+    for (let i = 0; i < list.length; i++) {
+      if (selectedGroupIds.includes(list[i].id) && i > 0 && !selectedGroupIds.includes(list[i - 1].id)) {
+        const temp = list[i];
+        list[i] = list[i - 1];
+        list[i - 1] = temp;
+      }
+    }
+    const updatedProject = { ...currentProject, groups: list, updatedAt: new Date().toISOString() };
+    setCurrentProject(updatedProject);
+    setHasUnsavedChanges(true);
+    saveProject(updatedProject);
+  };
+
+  const handleMoveGroupsToStart = () => {
+    if (!currentProject || selectedGroupIds.length === 0) return;
+    pushUndoSnapshot();
+    const selected = currentProject.groups.filter(g => selectedGroupIds.includes(g.id));
+    const unselected = currentProject.groups.filter(g => !selectedGroupIds.includes(g.id));
+    const updatedProject = { ...currentProject, groups: [...selected, ...unselected], updatedAt: new Date().toISOString() };
+    setCurrentProject(updatedProject);
+    setHasUnsavedChanges(true);
+    saveProject(updatedProject);
+  };
+
+  const handleMoveGroupsDown = () => {
+    if (!currentProject || selectedGroupIds.length === 0) return;
+    pushUndoSnapshot();
+    const list = [...currentProject.groups];
+    for (let i = list.length - 1; i >= 0; i--) {
+      if (selectedGroupIds.includes(list[i].id) && i < list.length - 1 && !selectedGroupIds.includes(list[i + 1].id)) {
+        const temp = list[i];
+        list[i] = list[i + 1];
+        list[i + 1] = temp;
+      }
+    }
+    const updatedProject = { ...currentProject, groups: list, updatedAt: new Date().toISOString() };
+    setCurrentProject(updatedProject);
+    setHasUnsavedChanges(true);
+    saveProject(updatedProject);
+  };
+
+  const handleMoveGroupsToEnd = () => {
+    if (!currentProject || selectedGroupIds.length === 0) return;
+    pushUndoSnapshot();
+    const selected = currentProject.groups.filter(g => selectedGroupIds.includes(g.id));
+    const unselected = currentProject.groups.filter(g => !selectedGroupIds.includes(g.id));
+    const updatedProject = { ...currentProject, groups: [...unselected, ...selected], updatedAt: new Date().toISOString() };
+    setCurrentProject(updatedProject);
+    setHasUnsavedChanges(true);
+    saveProject(updatedProject);
+  };
+
+  const handleDeleteSelectedGroups = () => {
+    if (!currentProject || selectedGroupIds.length === 0) return;
+    pushUndoSnapshot();
+    const nextGroups = currentProject.groups.filter(g => !selectedGroupIds.includes(g.id));
+    const nextActivities = currentProject.activities.map(a =>
+      a.groupId && selectedGroupIds.includes(a.groupId) ? { ...a, groupId: null } : a
+    );
+    const updatedProject = {
+      ...currentProject,
+      groups: nextGroups,
+      activities: nextActivities,
+      updatedAt: new Date().toISOString(),
+    };
+    setCurrentProject(updatedProject);
+    setSelectedGroupIds([]);
     setHasUnsavedChanges(true);
     saveProject(updatedProject);
   };
@@ -591,6 +803,7 @@ export default function App() {
             completionLogs={currentProject.completionLogs}
             onToggleCell={handleToggleCell}
             onToggleParentDay={handleToggleParentDay}
+            onToggleGroupDay={handleToggleGroupDay}
             onEditActivity={(act) => {
               setEditingActivity(act);
               setIsActivityModalOpen(true);
@@ -605,27 +818,52 @@ export default function App() {
             selectedActivityIds={selectedActivityIds}
             onToggleSelectActivity={handleToggleSelectActivity}
             onToggleSelectAll={handleToggleSelectAll}
+            selectedGroupIds={selectedGroupIds}
+            onToggleSelectGroup={handleToggleSelectGroup}
             onPrevDateWindow={handlePrevDateWindow}
             onNextDateWindow={handleNextDateWindow}
             onTodayWindow={handleTodayWindow}
             onOpenTimeSettings={() => setIsTimeSettingsOpen(true)}
             activeFilterGroup={activeFilterGroup}
             onSetFilterGroup={setActiveFilterGroup}
+            onToggleActivityCompletion={handleToggleActivityCompletion}
           />
         )}
 
       </main>
 
-      {/* Floating Multi-Select Action Bar */}
-      <MultiSelectBar
-        selectedCount={selectedActivityIds.length}
-        groups={currentProject?.groups || []}
-        onAssignToGroup={handleBatchAssignGroup}
-        onCreateAndAssignGroup={handleBatchCreateAndAssignGroup}
-        onMarkSelectedCompleted={handleBatchMarkCompleted}
-        onDeleteSelected={handleBatchDelete}
-        onClearSelection={() => setSelectedActivityIds([])}
-      />
+      {/* Floating Multi-Select Action Bar for Groups */}
+      {selectedGroupIds.length > 0 && (
+        <MultiSelectBar
+          mode="groups"
+          selectedCount={selectedGroupIds.length}
+          groups={currentProject?.groups || []}
+          onDeleteSelected={handleDeleteSelectedGroups}
+          onClearSelection={() => setSelectedGroupIds([])}
+          onMoveUp={handleMoveGroupsUp}
+          onMoveToStart={handleMoveGroupsToStart}
+          onMoveDown={handleMoveGroupsDown}
+          onMoveToEnd={handleMoveGroupsToEnd}
+        />
+      )}
+
+      {/* Floating Multi-Select Action Bar for Activities */}
+      {selectedGroupIds.length === 0 && selectedActivityIds.length > 0 && (
+        <MultiSelectBar
+          mode="activities"
+          selectedCount={selectedActivityIds.length}
+          groups={currentProject?.groups || []}
+          onAssignToGroup={handleBatchAssignGroup}
+          onCreateAndAssignGroup={handleBatchCreateAndAssignGroup}
+          onMarkSelectedCompleted={handleBatchMarkCompleted}
+          onDeleteSelected={handleBatchDelete}
+          onClearSelection={() => setSelectedActivityIds([])}
+          onMoveUp={handleMoveActivitiesUp}
+          onMoveToStart={handleMoveActivitiesToStart}
+          onMoveDown={handleMoveActivitiesDown}
+          onMoveToEnd={handleMoveActivitiesToEnd}
+        />
+      )}
 
       {/* Project Switcher Modal */}
       <ProjectModal
@@ -650,7 +888,7 @@ export default function App() {
         onSave={handleSaveActivity}
         initialActivity={editingActivity}
         groups={currentProject?.groups || []}
-        onCreateGroup={handleCreateGroup}
+        onCreateGroup={(name, color, code, showBox) => handleCreateGroup(name, color, code, showBox)}
         onDeleteGroup={handleDeleteGroup}
         onUpdateGroup={handleUpdateGroup}
       />
@@ -663,7 +901,7 @@ export default function App() {
           setEditingGroup(null);
         }}
         groups={currentProject?.groups || []}
-        onCreateGroup={(name, color, code) => handleCreateGroup(name, color, code)}
+        onCreateGroup={(name, color, code, showBox) => handleCreateGroup(name, color, code, showBox)}
         onUpdateGroup={handleUpdateGroup}
         onDeleteGroup={handleDeleteGroup}
         initialGroup={editingGroup}

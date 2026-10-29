@@ -142,9 +142,150 @@ export function isActivityActiveOnDate(activity: Activity, dateStr: string): boo
       return true;
     }
 
+    case 'day_clusters': {
+      // Active ONLY if the date belongs to a complete cluster of clusterSize days that fits entirely
+      const clusterDates = getClusterDatesForDate(activity, dateStr);
+      return clusterDates.length === (activity.clusterSize || 2);
+    }
+
     default:
       return true;
   }
+}
+
+export interface ClusterPreset {
+  label: string;
+  days: number[]; // Consecutive days of week e.g. [1, 2] for Lun, Mar
+}
+
+/**
+ * Standard fixed cluster presets of contiguous day sequences.
+ */
+export function getClusterPresets(size: number): ClusterPreset[] {
+  if (size === 2) {
+    return [
+      { label: 'Lun y Mar', days: [1, 2] },
+      { label: 'Mar y Mié', days: [2, 3] },
+      { label: 'Mié y Jue', days: [3, 4] },
+      { label: 'Jue y Vie', days: [4, 5] },
+      { label: 'Vie y Sáb', days: [5, 6] },
+      { label: 'Sáb y Dom', days: [6, 0] },
+    ];
+  }
+  if (size === 3) {
+    return [
+      { label: 'Lun - Mar - Mié', days: [1, 2, 3] },
+      { label: 'Mar - Mié - Jue', days: [2, 3, 4] },
+      { label: 'Mié - Jue - Vie', days: [3, 4, 5] },
+      { label: 'Jue - Vie - Sáb', days: [4, 5, 6] },
+      { label: 'Vie - Sáb - Dom', days: [5, 6, 0] },
+    ];
+  }
+  if (size === 4) {
+    return [
+      { label: 'Lun a Jue', days: [1, 2, 3, 4] },
+      { label: 'Mar a Vie', days: [2, 3, 4, 5] },
+      { label: 'Mié a Sáb', days: [3, 4, 5, 6] },
+      { label: 'Jue a Dom', days: [4, 5, 6, 0] },
+    ];
+  }
+  if (size === 5) {
+    return [
+      { label: 'Lun a Vie', days: [1, 2, 3, 4, 5] },
+      { label: 'Mar a Sáb', days: [2, 3, 4, 5, 6] },
+      { label: 'Mié a Dom', days: [3, 4, 5, 6, 0] },
+    ];
+  }
+  return [
+    { label: 'Lun a Sáb', days: [1, 2, 3, 4, 5, 6] },
+    { label: 'Mar a Dom', days: [2, 3, 4, 5, 6, 0] },
+  ];
+}
+
+/**
+ * Resolves non-overlapping cluster day blocks for an activity.
+ * If activity.clusterBlocks is provided and non-empty, returns it.
+ * Otherwise, reconstructs non-overlapping blocks without any false ghost overlaps.
+ */
+export function getActivityClusterBlocks(activity: Activity): number[][] {
+  if (activity.clusterBlocks && activity.clusterBlocks.length > 0) {
+    return activity.clusterBlocks;
+  }
+
+  const clusterSize = activity.clusterSize || 2;
+  const presets = getClusterPresets(clusterSize);
+  const activeDays = activity.activeDays || [];
+
+  const blocks: number[][] = [];
+  const claimedDays = new Set<number>();
+
+  for (const preset of presets) {
+    const allDaysInActive = preset.days.every(d => activeDays.includes(d));
+    const noDaysClaimed = preset.days.every(d => !claimedDays.has(d));
+    if (allDaysInActive && noDaysClaimed) {
+      blocks.push(preset.days);
+      preset.days.forEach(d => claimedDays.add(d));
+    }
+  }
+
+  return blocks;
+}
+
+/**
+ * Returns all date strings that belong to the complete cluster containing dateStr.
+ * If the cluster cannot fit completely (e.g. cut off by startDate or endDate),
+ * returns empty array [] so incomplete clusters of 1 or fewer days are never formed.
+ */
+export function getClusterDatesForDate(activity: Activity, dateStr: string): string[] {
+  if (activity.scheduleType !== 'day_clusters' || !activity.activeDays || activity.activeDays.length === 0) {
+    return [dateStr];
+  }
+
+  const d = parseYYYYMMDD(dateStr);
+  const dow = d.getDay();
+  if (!activity.activeDays.includes(dow)) {
+    return [];
+  }
+
+  const clusterSize = activity.clusterSize || 2;
+  const blocks = getActivityClusterBlocks(activity);
+
+  // Find which specific non-overlapping block contains this dow
+  const matchingBlock = blocks.find(b => b.includes(dow));
+  if (!matchingBlock || matchingBlock.length !== clusterSize) {
+    return [];
+  }
+
+  const dowIndexInBlock = matchingBlock.indexOf(dow);
+  if (dowIndexInBlock === -1) {
+    return [];
+  }
+
+  // Calculate cluster start date in calendar (index 0 is cluster start)
+  const clusterStart = new Date(d);
+  clusterStart.setDate(d.getDate() - dowIndexInBlock);
+
+  const candidateDates: string[] = [];
+  for (let i = 0; i < clusterSize; i++) {
+    const cur = new Date(clusterStart);
+    cur.setDate(clusterStart.getDate() + i);
+    candidateDates.push(formatDateToYYYYMMDD(cur));
+  }
+
+  // Strict Rule: Every date in the cluster must fall within [startDate, endDate]
+  // Never can an incomplete cluster enter (e.g. if start was Tuesday for Lun y Mar,
+  // that week's cluster cannot enter and only the next week with complete Lun y Mar enters)
+  const allFit = candidateDates.every(cd => {
+    if (cd < activity.startDate) return false;
+    if (activity.hasEndDate && activity.endDate && cd > activity.endDate) return false;
+    return true;
+  });
+
+  if (!allFit) {
+    return [];
+  }
+
+  return candidateDates;
 }
 
 export function formatFriendlyDate(dateStr: string): string {

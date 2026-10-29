@@ -7,7 +7,7 @@ interface GroupModalProps {
   isOpen: boolean;
   onClose: () => void;
   groups: ActivityGroup[];
-  onCreateGroup: (name: string, color: string, code?: string) => void;
+  onCreateGroup: (name: string, color: string, code?: string, showBox?: boolean) => void;
   onUpdateGroup: (group: ActivityGroup) => void;
   onDeleteGroup: (groupId: string) => void;
   initialGroup?: ActivityGroup | null;
@@ -25,11 +25,13 @@ export const GroupModal: React.FC<GroupModalProps> = ({
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupCode, setNewGroupCode] = useState('');
   const [newGroupColor, setNewGroupColor] = useState(COLOR_PALETTE[0].hex);
+  const [newGroupShowBox, setNewGroupShowBox] = useState(false);
 
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [editingCode, setEditingCode] = useState('');
   const [editingColor, setEditingColor] = useState('');
+  const [editingShowBox, setEditingShowBox] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -38,6 +40,7 @@ export const GroupModal: React.FC<GroupModalProps> = ({
       setEditingName(initialGroup.name);
       setEditingCode(initialGroup.code || '');
       setEditingColor(initialGroup.color);
+      setEditingShowBox(!!initialGroup.showBox);
     } else if (!isOpen) {
       setEditingGroupId(null);
     }
@@ -51,10 +54,12 @@ export const GroupModal: React.FC<GroupModalProps> = ({
     onCreateGroup(
       newGroupName.trim(), 
       newGroupColor, 
-      newGroupCode.trim().toUpperCase() || undefined
+      newGroupCode.trim().toUpperCase() || undefined,
+      newGroupShowBox
     );
     setNewGroupName('');
     setNewGroupCode('');
+    setNewGroupShowBox(false);
   };
 
   const startEdit = (g: ActivityGroup) => {
@@ -62,6 +67,7 @@ export const GroupModal: React.FC<GroupModalProps> = ({
     setEditingName(g.name);
     setEditingCode(g.code || '');
     setEditingColor(g.color);
+    setEditingShowBox(!!g.showBox);
   };
 
   const saveEdit = (g: ActivityGroup) => {
@@ -71,6 +77,7 @@ export const GroupModal: React.FC<GroupModalProps> = ({
       name: editingName.trim(),
       code: editingCode.trim().toUpperCase() || undefined,
       color: editingColor || g.color,
+      showBox: editingShowBox,
     });
     setEditingGroupId(null);
   };
@@ -138,21 +145,44 @@ export const GroupModal: React.FC<GroupModalProps> = ({
             </div>
 
             {/* Color swatches */}
-            <div className="flex items-center gap-1.5 flex-wrap pt-1">
-              {COLOR_PALETTE.map((c) => (
-                <button
-                  key={c.id}
-                  type="button"
-                  onClick={() => setNewGroupColor(c.hex)}
-                  className={`w-5 h-5 rounded-full transition-transform ${
-                    newGroupColor.toLowerCase() === c.hex.toLowerCase()
-                      ? 'ring-2 ring-offset-2 ring-slate-800 scale-110'
-                      : 'hover:scale-105'
-                  }`}
-                  style={{ backgroundColor: c.hex }}
-                  title={c.name}
+            <div className="space-y-1 pt-1">
+              <label className="text-[11px] font-semibold text-slate-600 block">Color del grupo</label>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {COLOR_PALETTE.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => setNewGroupColor(c.hex)}
+                    className={`w-5 h-5 rounded-full transition-transform ${
+                      newGroupColor.toLowerCase() === c.hex.toLowerCase()
+                        ? 'ring-2 ring-offset-2 ring-slate-800 scale-110'
+                        : 'hover:scale-105'
+                    }`}
+                    style={{ backgroundColor: c.hex }}
+                    title={c.name}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Line with checkbox and message indicating if box is shown or not */}
+            <div className="pt-2 border-t border-slate-200/80 space-y-1">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={newGroupShowBox}
+                  onChange={(e) => setNewGroupShowBox(e.target.checked)}
+                  className="rounded border-slate-300 text-amber-500 focus:ring-amber-400 w-4 h-4 accent-amber-500 cursor-pointer"
                 />
-              ))}
+                <span className="text-xs font-semibold text-slate-800">
+                  Activar casilla (box) en los días de este grupo
+                </span>
+              </label>
+              <p className="text-[11px] text-slate-500 pl-6">
+                {newGroupShowBox
+                  ? '✓ Casilla activada: cada día mostrará una casilla para el grupo en la matriz.'
+                  : '✕ Casilla desactivada: el grupo no mostrará casillas diarias, solo la etiqueta organizadora.'}
+              </p>
             </div>
           </form>
 
@@ -174,7 +204,7 @@ export const GroupModal: React.FC<GroupModalProps> = ({
 
                   if (isEditing) {
                     return (
-                      <div key={group.id} className="p-3 bg-amber-50/40 border border-amber-300 rounded-lg space-y-2">
+                      <div key={group.id} className="p-3 bg-amber-50/40 border border-amber-300 rounded-lg space-y-2.5">
                         <div className="flex items-center gap-2">
                           <input
                             type="text"
@@ -223,6 +253,23 @@ export const GroupModal: React.FC<GroupModalProps> = ({
                               style={{ backgroundColor: c.hex }}
                             />
                           ))}
+                        </div>
+                        {/* Edit showBox toggle */}
+                        <div className="pt-1.5 border-t border-amber-200/80 space-y-0.5">
+                          <label className="flex items-center gap-2 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={editingShowBox}
+                              onChange={(e) => setEditingShowBox(e.target.checked)}
+                              className="rounded border-slate-300 text-amber-500 focus:ring-amber-400 w-3.5 h-3.5 accent-amber-500 cursor-pointer"
+                            />
+                            <span className="text-[11px] font-semibold text-slate-800">
+                              Activar casilla (box) en los días
+                            </span>
+                          </label>
+                          <p className="text-[10px] text-slate-500 pl-5.5">
+                            {editingShowBox ? '✓ Casilla activada en la matriz' : '✕ Sin casilla diaria (solo etiqueta)'}
+                          </p>
                         </div>
                       </div>
                     );

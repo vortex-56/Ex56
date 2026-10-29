@@ -16,15 +16,15 @@ export function exportProjectToCSV(project: Project): string {
 
   // Groups block
   lines.push('# GROUPS');
-  lines.push('GroupId,GroupCode,GroupName,Color');
+  lines.push('GroupId,GroupCode,GroupName,Color,ShowBox');
   for (const g of project.groups) {
-    lines.push(`${escapeCSV(g.id)},${escapeCSV(g.code || '')},${escapeCSV(g.name)},${escapeCSV(g.color)}`);
+    lines.push(`${escapeCSV(g.id)},${escapeCSV(g.code || '')},${escapeCSV(g.name)},${escapeCSV(g.color)},${g.showBox ? '1' : '0'}`);
   }
   lines.push('');
 
   // Activities block
   lines.push('# ACTIVITIES');
-  lines.push('ActivityId,ActivityCode,GroupId,Name,Color,StartDate,HasEndDate,EndDate,IsCompleted,ScheduleType,ActiveDays,BlockSize,SubActivitiesJson');
+  lines.push('ActivityId,ActivityCode,GroupId,Name,Color,StartDate,HasEndDate,EndDate,IsCompleted,ScheduleType,ActiveDays,BlockSize,ClusterSize,DayValue,SubActivitiesJson');
   for (const a of project.activities) {
     const subJson = JSON.stringify(a.subActivities);
     const activeDaysStr = a.activeDays.join(';');
@@ -41,6 +41,8 @@ export function exportProjectToCSV(project: Project): string {
       escapeCSV(a.scheduleType),
       escapeCSV(activeDaysStr),
       a.blockSize || '',
+      a.clusterSize || '',
+      a.dayValue || '',
       escapeCSV(subJson),
     ].join(','));
   }
@@ -107,17 +109,21 @@ export function parseCSVToProject(csvText: string): Project {
       }
       if (row.length >= 2) {
         if (groupsHasCode && row.length >= 3) {
+          const showBox = row[4] !== undefined ? row[4] === '1' : false;
           groups.push({
             id: row[0],
             code: row[1] || undefined,
             name: row[2] || 'Grupo',
             color: row[3] || '#6366f1',
+            showBox,
           });
         } else {
+          const showBox = row[3] !== undefined ? row[3] === '1' : false;
           groups.push({
             id: row[0],
             name: row[1] || 'Grupo',
             color: row[2] || '#6366f1',
+            showBox,
           });
         }
       }
@@ -139,15 +145,34 @@ export function parseCSVToProject(csvText: string): Project {
         const groupId = row[1 + offset] || null;
         const actName = row[2 + offset] || 'Actividad';
         const color = row[3 + offset] || '#3b82f6';
-        const startDate = row[4 + offset];
+        const startDate = row[4 + offset] || new Date().toISOString().split('T')[0];
         const hasEndDate = row[5 + offset] === '1';
         const endDate = row[6 + offset] ? row[6 + offset] : null;
         const isCompleted = row[7 + offset] === '1';
         const scheduleType = (row[8 + offset] as any) || 'daily';
         const activeDays = row[9 + offset] ? row[9 + offset].split(';').map(Number).filter((n) => !isNaN(n)) : [0, 1, 2, 3, 4, 5, 6];
         const blockSize = row[10 + offset] ? parseInt(row[10 + offset], 10) : undefined;
+        
+        // Find subActivities in last column if it looks like JSON array
         let subActivities: SubActivity[] = [];
-        if (row[11 + offset]) {
+        let clusterSize: number | undefined = undefined;
+        let dayValue: number | undefined = undefined;
+
+        const lastCol = row[row.length - 1];
+        if (lastCol && lastCol.startsWith('[') && lastCol.endsWith(']')) {
+          try {
+            subActivities = JSON.parse(lastCol);
+          } catch {
+            subActivities = [];
+          }
+          // Check if intermediate cluster columns exist
+          if (row.length >= 13 + offset) {
+            clusterSize = row[11 + offset] ? parseInt(row[11 + offset], 10) : undefined;
+          }
+          if (row.length >= 14 + offset) {
+            dayValue = row[12 + offset] ? parseInt(row[12 + offset], 10) : undefined;
+          }
+        } else if (row[11 + offset]) {
           try {
             subActivities = JSON.parse(row[11 + offset]);
           } catch {
@@ -168,6 +193,8 @@ export function parseCSVToProject(csvText: string): Project {
           scheduleType,
           activeDays,
           blockSize,
+          clusterSize,
+          dayValue,
           subActivities,
         });
       }
@@ -305,9 +332,16 @@ function sanitizeProjectData(data: any): Project {
     name: data.name || 'Proyecto Importado',
     createdAt: data.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-    groups: Array.isArray(data.groups) ? data.groups : [],
+    groups: Array.isArray(data.groups) ? data.groups.map((g: any) => ({
+      id: g.id || 'grp_' + Math.random().toString(36).substring(2, 9),
+      code: g.code,
+      name: g.name || 'Grupo',
+      color: g.color || '#6366f1',
+      showBox: !!g.showBox,
+    })) : [],
     activities: Array.isArray(data.activities) ? data.activities.map((a: any) => ({
       id: a.id || 'act_' + Math.random().toString(36).substring(2, 9),
+      code: a.code,
       groupId: a.groupId || null,
       name: a.name || 'Actividad',
       color: a.color || '#3b82f6',
@@ -318,7 +352,14 @@ function sanitizeProjectData(data: any): Project {
       scheduleType: a.scheduleType || 'daily',
       activeDays: Array.isArray(a.activeDays) ? a.activeDays : [0, 1, 2, 3, 4, 5, 6],
       blockSize: a.blockSize,
-      subActivities: Array.isArray(a.subActivities) ? a.subActivities : [],
+      clusterSize: a.clusterSize,
+      dayValue: a.dayValue,
+      subActivities: Array.isArray(a.subActivities) ? a.subActivities.map((s: any, idx: number) => ({
+        id: s.id || 'sub_' + Math.random().toString(36).substring(2, 9),
+        code: s.code,
+        name: s.name || `Sesión ${idx + 1}`,
+        order: s.order || idx + 1,
+      })) : [],
       notes: a.notes,
     })) : [],
     completionLogs: typeof data.completionLogs === 'object' && data.completionLogs !== null ? data.completionLogs : {},

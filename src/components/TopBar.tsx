@@ -71,7 +71,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         <div className="hidden lg:flex items-center gap-2 text-xs text-slate-500 font-medium">
           <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-200/80">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-            Gestor Matricial de Actividades y Hábitos
+            Gestor de Actividades
           </span>
         </div>
 

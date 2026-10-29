@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Activity, ActivityGroup, ScheduleType, SubActivity } from '../types';
 import { COLOR_PALETTE } from '../utils/colors';
-import { getTodayDateString, getTomorrowDateString } from '../utils/dateUtils';
-import { X, Plus, Trash2, Calendar, CheckSquare, Check } from 'lucide-react';
+import { getTodayDateString, getTomorrowDateString, getClusterPresets, getActivityClusterBlocks } from '../utils/dateUtils';
+import { X, Plus, Trash2, Calendar, CheckSquare, Check, ArrowUp, ArrowDown } from 'lucide-react';
 
 interface ActivityModalProps {
   isOpen: boolean;
@@ -10,7 +10,7 @@ interface ActivityModalProps {
   onSave: (activity: Activity) => void;
   initialActivity?: Activity | null;
   groups: ActivityGroup[];
-  onCreateGroup: (name: string, color: string, code?: string) => ActivityGroup;
+  onCreateGroup: (name: string, color: string, code?: string, showBox?: boolean) => ActivityGroup;
   onDeleteGroup?: (groupId: string) => void;
   onUpdateGroup?: (group: ActivityGroup) => void;
 }
@@ -44,6 +44,9 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
   const [endDate, setEndDate] = useState('');
   const [scheduleType, setScheduleType] = useState<ScheduleType>('daily');
   const [activeDays, setActiveDays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
+  const [clusterSize, setClusterSize] = useState<number>(2);
+  const [clusterBlocks, setClusterBlocks] = useState<number[][]>([[1, 2]]);
+  const [dayValue, setDayValue] = useState<number>(1);
   const [isCompleted, setIsCompleted] = useState(false);
   const [subActivities, setSubActivities] = useState<SubActivity[]>([]);
   const [notes, setNotes] = useState('');
@@ -52,15 +55,19 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
   const [isCreatingNewGroup, setIsCreatingNewGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupCode, setNewGroupCode] = useState('');
+  const [newGroupShowBox, setNewGroupShowBox] = useState(false);
 
   // Group editing state inside modal
   const [isEditingCurrentGroup, setIsEditingCurrentGroup] = useState(false);
   const [editingCurrentGroupName, setEditingCurrentGroupName] = useState('');
   const [editingCurrentGroupCode, setEditingCurrentGroupCode] = useState('');
   const [editingCurrentGroupColor, setEditingCurrentGroupColor] = useState('');
+  const [editingCurrentGroupShowBox, setEditingCurrentGroupShowBox] = useState(false);
   const [confirmDeleteGroup, setConfirmDeleteGroup] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
+    setSubmitError(null);
     if (initialActivity) {
       setName(initialActivity.name);
       setCode(initialActivity.code || '');
@@ -71,6 +78,9 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
       setEndDate(initialActivity.endDate || '');
       setScheduleType(initialActivity.scheduleType || 'daily');
       setActiveDays(initialActivity.activeDays?.length ? initialActivity.activeDays : [0, 1, 2, 3, 4, 5, 6]);
+      setClusterSize(initialActivity.clusterSize || 2);
+      setClusterBlocks(getActivityClusterBlocks(initialActivity));
+      setDayValue(initialActivity.dayValue || (initialActivity.scheduleType === 'day_clusters' ? (initialActivity.clusterSize || 2) : 1));
       setIsCompleted(initialActivity.isCompleted || false);
       setSubActivities(initialActivity.subActivities ? [...initialActivity.subActivities] : []);
       setNotes(initialActivity.notes || '');
@@ -85,6 +95,9 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
       setEndDate(getTomorrowDateString());
       setScheduleType('daily');
       setActiveDays([0, 1, 2, 3, 4, 5, 6]);
+      setClusterSize(2);
+      setClusterBlocks([[1, 2]]);
+      setDayValue(1);
       setIsCompleted(false);
       setSubActivities([]);
       setNotes('');
@@ -92,10 +105,12 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
     setIsCreatingNewGroup(false);
     setNewGroupName('');
     setNewGroupCode('');
+    setNewGroupShowBox(false);
     setIsEditingCurrentGroup(false);
     setEditingCurrentGroupName('');
     setEditingCurrentGroupCode('');
     setEditingCurrentGroupColor('');
+    setEditingCurrentGroupShowBox(false);
     setConfirmDeleteGroup(false);
   }, [initialActivity, isOpen, groups]);
 
@@ -172,18 +187,77 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
     }
   };
 
+  const handleMoveSubActivity = (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= subActivities.length) return;
+    const copy = [...subActivities];
+    const temp = copy[index];
+    copy[index] = copy[targetIndex];
+    copy[targetIndex] = temp;
+    const reindexed = copy.map((sub, idx) => ({ ...sub, order: idx + 1 }));
+    setSubActivities(reindexed);
+  };
+
+  const getMaxClustersForSize = (size: number): number => {
+    if (size === 2) return 3;
+    if (size === 3) return 2;
+    return 1;
+  };
+
+  const toggleClusterPreset = (presetDays: number[], size: number) => {
+    setSubmitError(null);
+    const isBlockActive = clusterBlocks.some(
+      block => block.length === presetDays.length && block.every((d, i) => d === presetDays[i])
+    );
+
+    if (isBlockActive) {
+      // Allow unselecting freely (down to 0) so all options can be re-evaluated
+      const nextBlocks = clusterBlocks.filter(
+        block => !(block.length === presetDays.length && block.every((d, i) => d === presetDays[i]))
+      );
+      setClusterBlocks(nextBlocks);
+      const nextActiveDays = Array.from(new Set(nextBlocks.flat())).sort((a, b) => a - b);
+      setActiveDays(nextActiveDays);
+      return;
+    }
+
+    const maxClusters = getMaxClustersForSize(size);
+
+    // If max clusters for this size is 1 (e.g. 4, 5, 6 days), selecting another preset directly replaces the active one
+    if (maxClusters === 1) {
+      setClusterBlocks([presetDays]);
+      setActiveDays([...presetDays]);
+      return;
+    }
+
+    // Check if any day is already occupied by an active cluster block
+    const isOccupied = presetDays.some(d => clusterBlocks.some(block => block.includes(d)));
+    if (isOccupied) return;
+
+    // Check if max clusters reached
+    if (clusterBlocks.length >= maxClusters) return;
+
+    // Add this cluster's days intact
+    const nextBlocks = [...clusterBlocks, presetDays];
+    setClusterBlocks(nextBlocks);
+    const nextActiveDays = Array.from(new Set(nextBlocks.flat())).sort((a, b) => a - b);
+    setActiveDays(nextActiveDays);
+  };
+
   const handleInlineGroupCreate = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newGroupName.trim()) return;
     const newGroup = onCreateGroup(
       newGroupName.trim(), 
       color, 
-      newGroupCode.trim().toUpperCase() || undefined
+      newGroupCode.trim().toUpperCase() || undefined,
+      newGroupShowBox
     );
     setGroupId(newGroup.id);
     setIsCreatingNewGroup(false);
     setNewGroupName('');
     setNewGroupCode('');
+    setNewGroupShowBox(false);
   };
 
   const selectedGroupObj = groups.find(g => g.id === groupId);
@@ -193,6 +267,7 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
     setEditingCurrentGroupName(selectedGroupObj.name);
     setEditingCurrentGroupCode(selectedGroupObj.code || '');
     setEditingCurrentGroupColor(selectedGroupObj.color);
+    setEditingCurrentGroupShowBox(!!selectedGroupObj.showBox);
     setIsEditingCurrentGroup(true);
   };
 
@@ -203,6 +278,7 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
       name: editingCurrentGroupName.trim(),
       code: editingCurrentGroupCode.trim().toUpperCase() || undefined,
       color: editingCurrentGroupColor || selectedGroupObj.color,
+      showBox: editingCurrentGroupShowBox,
     });
     setIsEditingCurrentGroup(false);
   };
@@ -216,7 +292,13 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitError(null);
     if (!name.trim()) return;
+
+    if (scheduleType === 'day_clusters' && clusterBlocks.length === 0) {
+      setSubmitError('Por favor, selecciona al menos un conjunto de días de la semana.');
+      return;
+    }
 
     const activityData: Activity = {
       id: initialActivity ? initialActivity.id : 'act_' + Math.random().toString(36).substring(2, 9),
@@ -230,6 +312,9 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
       isCompleted,
       scheduleType,
       activeDays,
+      clusterSize: scheduleType === 'day_clusters' ? clusterSize : undefined,
+      clusterBlocks: scheduleType === 'day_clusters' ? clusterBlocks : undefined,
+      dayValue: scheduleType === 'day_clusters' ? clusterSize : 1,
       subActivities,
       notes,
     };
@@ -567,25 +652,34 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
 
           {/* Row 4: Schedule Patterns */}
           <div className="space-y-3">
-            <label className="block text-xs font-semibold text-slate-700">
-              Patrón de Repetición / Días Activos
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-semibold text-slate-700">
+                Patrón de Repetición / Días Activos
+              </label>
+              <span className="text-[11px] font-bold text-amber-900 bg-amber-100 px-2 py-0.5 rounded border border-amber-300">
+                Valor por cumplimiento: {scheduleType === 'day_clusters' ? `${clusterSize} pts (conjunto)` : '1 pt por día'}
+              </span>
+            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <button
                 type="button"
                 onClick={() => {
                   setScheduleType('daily');
                   setActiveDays([0, 1, 2, 3, 4, 5, 6]);
+                  setDayValue(1);
                 }}
-                className={`p-2.5 text-left rounded-lg border text-xs transition-all cursor-pointer ${
+                className={`p-3 text-left rounded-lg border text-xs transition-all cursor-pointer ${
                   scheduleType === 'daily'
                     ? 'border-amber-400 bg-amber-100 text-amber-950 font-bold ring-1 ring-amber-400/40 shadow-2xs'
                     : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
                 }`}
               >
-                <div className="font-bold">Diario (Todos los días)</div>
-                <div className="text-[11px] text-slate-500 mt-0.5">1 casilla por día (ej. Meditar)</div>
+                <div className="font-bold flex items-center justify-between">
+                  <span>Diario (Todos los días)</span>
+                  <span className="text-[10px] font-mono bg-amber-200 text-amber-950 px-1.5 py-0.5 rounded">Valor: 1</span>
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">Se repite cada día indefinidamente o hasta el fin fijado</div>
               </button>
 
               <button
@@ -593,15 +687,41 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
                 onClick={() => {
                   setScheduleType('specific_days');
                   setActiveDays([1, 2, 3, 4, 5, 6]);
+                  setDayValue(1);
                 }}
-                className={`p-2.5 text-left rounded-lg border text-xs transition-all cursor-pointer ${
+                className={`p-3 text-left rounded-lg border text-xs transition-all cursor-pointer ${
                   scheduleType === 'specific_days'
                     ? 'border-amber-400 bg-amber-100 text-amber-950 font-bold ring-1 ring-amber-400/40 shadow-2xs'
                     : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
                 }`}
               >
-                <div className="font-bold">Días Específicos</div>
-                <div className="text-[11px] text-slate-500 mt-0.5">Ej. Lun-Sáb sin domingos (ej. Videos)</div>
+                <div className="font-bold flex items-center justify-between">
+                  <span>Días Específicos</span>
+                  <span className="text-[10px] font-mono bg-amber-200 text-amber-950 px-1.5 py-0.5 rounded">Valor: 1</span>
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">Días elegidos en la semana (ej. Lun a Sáb sin domingos)</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setScheduleType('day_clusters');
+                  if (!activeDays.length || activeDays.length === 7) {
+                    setActiveDays([1, 2]); // default first 2-day cluster
+                  }
+                  setDayValue(clusterSize);
+                }}
+                className={`p-3 text-left rounded-lg border text-xs transition-all cursor-pointer ${
+                  scheduleType === 'day_clusters'
+                    ? 'border-amber-400 bg-amber-100 text-amber-950 font-bold ring-1 ring-amber-400/40 shadow-2xs'
+                    : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                }`}
+              >
+                <div className="font-bold flex items-center justify-between">
+                  <span>Por Conjunto de Días</span>
+                  <span className="text-[10px] font-mono bg-amber-200 text-amber-950 px-1.5 py-0.5 rounded">Valor: {clusterSize}</span>
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">Bloques de {clusterSize} días agrupados que generan valor conjunto</div>
               </button>
 
               <button
@@ -610,22 +730,26 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
                   setScheduleType('finite');
                   setHasEndDate(true);
                   if (!endDate) setEndDate(startDate);
+                  setDayValue(1);
                 }}
-                className={`p-2.5 text-left rounded-lg border text-xs transition-all cursor-pointer ${
+                className={`p-3 text-left rounded-lg border text-xs transition-all cursor-pointer ${
                   scheduleType === 'finite'
                     ? 'border-amber-400 bg-amber-100 text-amber-950 font-bold ring-1 ring-amber-400/40 shadow-2xs'
                     : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
                 }`}
               >
-                <div className="font-bold">Evento Puntual / Finito</div>
-                <div className="text-[11px] text-slate-500 mt-0.5">Rango cerrado (ej. Compartir fotos)</div>
+                <div className="font-bold flex items-center justify-between">
+                  <span>Evento Puntual / Finito</span>
+                  <span className="text-[10px] font-mono bg-amber-200 text-amber-950 px-1.5 py-0.5 rounded">Valor: 1</span>
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">Rango cerrado o actividad rápida de una sola vez</div>
               </button>
             </div>
 
-            {/* Weekday Selector */}
+            {/* Weekday Selector for specific_days */}
             {scheduleType === 'specific_days' && (
               <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-2">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-1">
                   <span className="text-xs font-medium text-slate-700">Días de la semana habilitados:</span>
                   <div className="flex gap-2 text-[11px] font-bold text-amber-800">
                     <button
@@ -633,7 +757,7 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
                       onClick={() => setActiveDays([1, 2, 3, 4, 5, 6])}
                       className="hover:underline cursor-pointer"
                     >
-                      Lun a Sáb (Sin domingos)
+                      Lun a Sáb
                     </button>
                     <span>·</span>
                     <button
@@ -672,6 +796,126 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
                       </button>
                     );
                   })}
+                </div>
+              </div>
+            )}
+
+            {/* Cluster Configuration for day_clusters */}
+            {scheduleType === 'day_clusters' && (
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between flex-wrap gap-1">
+                    <span className="text-xs font-semibold text-slate-800">
+                      Cantidad de días por conjunto:
+                    </span>
+                    <span className="text-xs font-mono font-bold text-amber-950 bg-amber-200 px-2 py-0.5 rounded">
+                      Genera {clusterSize} de valor
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-5 gap-1.5 pt-1">
+                    {[2, 3, 4, 5, 6].map((size) => (
+                      <button
+                        key={size}
+                        type="button"
+                        onClick={() => {
+                          setClusterSize(size);
+                          setDayValue(size);
+                          const firstPreset = getClusterPresets(size)[0]?.days || [1, 2];
+                          setClusterBlocks([firstPreset]);
+                          setActiveDays([...firstPreset]);
+                        }}
+                        className={`py-1.5 px-2 text-xs font-bold rounded-lg border text-center transition-all cursor-pointer ${
+                          clusterSize === size
+                            ? 'bg-amber-400 text-slate-950 border-amber-500 shadow-2xs'
+                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                        }`}
+                      >
+                        {size} días
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-slate-500 pt-0.5">
+                    {clusterSize === 2 && 'Puedes activar hasta 3 conjuntos de 2 días por semana.'}
+                    {clusterSize === 3 && 'Puedes activar hasta 2 conjuntos de 3 días por semana.'}
+                    {clusterSize >= 4 && `Puedes activar 1 conjunto de ${clusterSize} días por semana.`}
+                  </p>
+                </div>
+
+                {/* Available Blocks for clusterSize */}
+                <div className="space-y-1.5 pt-2 border-t border-slate-200/80">
+                  <div className="flex items-center justify-between flex-wrap gap-1">
+                    <span className="text-xs font-semibold text-slate-700 block">
+                      Selecciona los conjuntos de días en la semana:
+                    </span>
+                    {clusterBlocks.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setClusterBlocks([]);
+                          setActiveDays([]);
+                          setSubmitError(null);
+                        }}
+                        className="text-[11px] font-bold text-amber-800 hover:text-amber-950 hover:underline cursor-pointer"
+                      >
+                        Deseleccionar todo
+                      </button>
+                    ) : (
+                      <span className="text-[11px] text-amber-700 font-medium">
+                        Ninguno seleccionado
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
+                    {getClusterPresets(clusterSize).map((preset) => {
+                      const isBlockActive = clusterBlocks.some(
+                        block => block.length === preset.days.length && block.every((d, i) => d === preset.days[i])
+                      );
+                      const maxClusters = getMaxClustersForSize(clusterSize);
+                      // For maxClusters === 1 (like 4, 5, 6 days), clicking another preset directly switches to it, so it is never blocked
+                      const isOccupiedByAnother = maxClusters > 1 && !isBlockActive && preset.days.some(d => clusterBlocks.some(block => block.includes(d)));
+                      const isMaxReached = maxClusters > 1 && !isBlockActive && clusterBlocks.length >= maxClusters;
+                      const isDisabled = isOccupiedByAnother || isMaxReached;
+
+                      return (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          disabled={isDisabled}
+                          onClick={() => toggleClusterPreset(preset.days, clusterSize)}
+                          className={`p-2 text-xs rounded-lg border font-semibold transition-all text-left flex items-center justify-between ${
+                            isBlockActive
+                              ? 'bg-amber-400 text-slate-950 border-amber-500 shadow-2xs font-bold ring-1 ring-amber-400/40 cursor-pointer'
+                              : isDisabled
+                              ? 'bg-slate-100 text-slate-400 border-slate-200 opacity-40 cursor-not-allowed'
+                              : 'bg-white text-slate-700 border-slate-200 hover:bg-amber-50/60 hover:border-amber-300 cursor-pointer'
+                          }`}
+                          title={
+                            isBlockActive
+                              ? 'Conjunto activo (clic para deseleccionar)'
+                              : isOccupiedByAnother
+                              ? 'Día(s) ya ocupado(s) por otro conjunto'
+                              : isMaxReached
+                              ? 'Límite de conjuntos alcanzado para este tamaño'
+                              : maxClusters === 1
+                              ? 'Clic para seleccionar este conjunto'
+                              : 'Clic para activar conjunto'
+                          }
+                        >
+                          <div className="flex flex-col min-w-0 pr-1">
+                            <span className="truncate">{preset.label}</span>
+                            {isOccupiedByAnother && (
+                              <span className="text-[10px] text-red-500 font-normal">Ocupado</span>
+                            )}
+                            {isMaxReached && !isOccupiedByAnother && (
+                              <span className="text-[10px] text-slate-400 font-normal">Límite alcanzado</span>
+                            )}
+                          </div>
+                          {isBlockActive && <Check className="w-3.5 h-3.5 stroke-[2.5] text-slate-950 shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             )}
@@ -729,7 +973,7 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
               </button>
             </div>
 
-            {/* Sub-activities List with code and custom names */}
+            {/* Sub-activities List with code, custom names, and move up/down */}
             {subActivities.length > 0 && (
               <div className="space-y-2 pt-2 border-t border-slate-200/80">
                 <div className="flex items-center justify-between text-xs text-slate-600 font-semibold">
@@ -746,7 +990,7 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
 
                 <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                   {subActivities.map((sub, index) => (
-                    <div key={sub.id} className="flex items-center gap-2">
+                    <div key={sub.id} className="flex items-center gap-1.5 sm:gap-2">
                       <div className="w-4 h-4 rounded-full border-2 border-slate-400 flex items-center justify-center shrink-0">
                         <div className="w-1.5 h-1.5 rounded-full bg-slate-400" />
                       </div>
@@ -756,7 +1000,7 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
                         onChange={(e) => handleUpdateSubActivityCode(sub.id, e.target.value)}
                         placeholder="Cód"
                         maxLength={5}
-                        className="w-16 px-2 py-1.5 text-xs font-mono font-bold text-center uppercase bg-slate-100 border border-slate-200 rounded-md focus:outline-hidden focus:border-amber-500"
+                        className="w-14 sm:w-16 px-1.5 sm:px-2 py-1.5 text-xs font-mono font-bold text-center uppercase bg-slate-100 border border-slate-200 rounded-md focus:outline-hidden focus:border-amber-500"
                         title="Código de la sub-actividad"
                       />
                       <input
@@ -764,12 +1008,31 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
                         value={sub.name}
                         onChange={(e) => handleUpdateSubActivityName(sub.id, e.target.value)}
                         placeholder={`Nombre de sesión o paso ${index + 1}...`}
-                        className="flex-1 px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-md focus:outline-hidden focus:border-amber-500 font-medium"
+                        className="flex-1 min-w-0 px-2 sm:px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-md focus:outline-hidden focus:border-amber-500 font-medium"
                       />
+                      {/* Desplazar arriba y abajo */}
+                      <button
+                        type="button"
+                        disabled={index === 0}
+                        onClick={() => handleMoveSubActivity(index, 'up')}
+                        className="p-1 sm:p-1.5 text-slate-400 hover:text-slate-800 disabled:opacity-20 disabled:cursor-not-allowed rounded-md hover:bg-slate-200 transition-colors cursor-pointer"
+                        title="Subir posición"
+                      >
+                        <ArrowUp className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={index === subActivities.length - 1}
+                        onClick={() => handleMoveSubActivity(index, 'down')}
+                        className="p-1 sm:p-1.5 text-slate-400 hover:text-slate-800 disabled:opacity-20 disabled:cursor-not-allowed rounded-md hover:bg-slate-200 transition-colors cursor-pointer"
+                        title="Bajar posición"
+                      >
+                        <ArrowDown className="w-3.5 h-3.5" />
+                      </button>
                       <button
                         type="button"
                         onClick={() => handleRemoveSubActivity(sub.id)}
-                        className="p-1.5 text-slate-400 hover:text-red-500 rounded-md transition-colors cursor-pointer"
+                        className="p-1 sm:p-1.5 text-slate-400 hover:text-red-500 rounded-md transition-colors cursor-pointer"
                         title="Eliminar sesión"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -813,6 +1076,20 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
               </button>
             </div>
           </div>
+
+          {/* Error notice if validation fails */}
+          {submitError && (
+            <div className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700 font-semibold flex items-center justify-between">
+              <span>{submitError}</span>
+              <button
+                type="button"
+                onClick={() => setSubmitError(null)}
+                className="text-red-500 hover:text-red-700 text-xs cursor-pointer px-1"
+              >
+                ✕
+              </button>
+            </div>
+          )}
 
           {/* Footer Submit Buttons */}
           <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2.5">

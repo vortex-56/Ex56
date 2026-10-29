@@ -1,4 +1,6 @@
-export type ScheduleType = 'daily' | 'finite' | 'specific_days' | 'pattern_blocks';
+export type ScheduleType = 'daily' | 'finite' | 'specific_days' | 'pattern_blocks' | 'day_clusters';
+
+export type GroupViewState = 'expanded_all' | 'collapsed_subactivities' | 'collapsed_group';
 
 export interface SubActivity {
   id: string;
@@ -13,6 +15,7 @@ export interface ActivityGroup {
   name: string;
   color: string;
   collapsed?: boolean;
+  showBox?: boolean; // whether to show a box for this group in each day column
 }
 
 export interface Activity {
@@ -26,10 +29,14 @@ export interface Activity {
   endDate: string | null; // YYYY-MM-DD
   isCompleted: boolean;
   scheduleType: ScheduleType;
-  // For specific_days: 0=Domingo, 1=Lunes, 2=Martes, 3=Miércoles, 4=Jueves, 5=Viernes, 6=Sábado
+  // For specific_days & day_clusters: 0=Domingo, 1=Lunes, 2=Martes, 3=Miércoles, 4=Jueves, 5=Viernes, 6=Sábado
   activeDays: number[];
-  // For pattern_blocks (e.g., 3 days on, user configured)
+  // For pattern_blocks & day_clusters (e.g. 2, 3, 4, 5, 6 days per cluster)
   blockSize?: number;
+  clusterSize?: number;
+  dayValue?: number;
+  // Explicitly selected cluster day blocks, e.g. [[1, 2], [3, 4]] for Lun-Mar and Mié-Jue
+  clusterBlocks?: number[][];
   subActivities: SubActivity[];
   notes?: string;
 }
