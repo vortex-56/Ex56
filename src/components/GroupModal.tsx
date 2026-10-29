@@ -109,7 +109,7 @@ export const GroupModal: React.FC<GroupModalProps> = ({
             <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
               Crear Nuevo Grupo
             </h3>
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <input
                 type="text"
                 value={newGroupName}
@@ -117,22 +117,24 @@ export const GroupModal: React.FC<GroupModalProps> = ({
                 placeholder="Nombre del grupo (ej. Salud, Trabajo)..."
                 className="flex-1 px-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
               />
-              <input
-                type="text"
-                value={newGroupCode}
-                onChange={(e) => setNewGroupCode(e.target.value.toUpperCase())}
-                placeholder="Cód (ej. SAL)"
-                maxLength={5}
-                className="w-24 px-2 py-1.5 text-xs font-mono font-bold uppercase text-center bg-white border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
-              />
-              <button
-                type="submit"
-                disabled={!newGroupName.trim()}
-                className="inline-flex items-center gap-1 px-3.5 py-1.5 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-500 border border-amber-500/30 rounded-lg disabled:opacity-50 transition-all shrink-0 cursor-pointer active:scale-95"
-              >
-                <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-                <span>Agregar</span>
-              </button>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newGroupCode}
+                  onChange={(e) => setNewGroupCode(e.target.value.toUpperCase())}
+                  placeholder="Cód (ej. SAL)"
+                  maxLength={5}
+                  className="w-24 px-2 py-1.5 text-xs font-mono font-bold uppercase text-center bg-white border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+                />
+                <button
+                  type="submit"
+                  disabled={!newGroupName.trim()}
+                  className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1 px-3.5 py-1.5 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-500 border border-amber-500/30 rounded-lg disabled:opacity-50 transition-all shrink-0 cursor-pointer active:scale-95"
+                >
+                  <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                  <span>Agregar</span>
+                </button>
+              </div>
             </div>
 
             {/* Color swatches */}

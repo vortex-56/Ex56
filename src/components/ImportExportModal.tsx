@@ -44,15 +44,32 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
 
   if (!isOpen) return null;
 
+  const getTimestampedFilename = (extension: 'csv' | 'txt') => {
+    const cleanName = currentProject.name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9áéíóúñ]+/gi, '_')
+      .replace(/^_+|_+$/g, '') || 'proyecto';
+    
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    
+    return `${cleanName}_${year}-${month}-${day}_${hours}${minutes}.${extension}`;
+  };
+
   const handleExportCSV = () => {
     const csvContent = exportProjectToCSV(currentProject);
-    const filename = `${currentProject.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_ex56.csv`;
+    const filename = getTimestampedFilename('csv');
     triggerFileDownload(filename, csvContent, 'text/csv;charset=utf-8;');
   };
 
   const handleExportTXT = () => {
     const txtContent = exportProjectToTXT(currentProject);
-    const filename = `${currentProject.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_ex56.txt`;
+    const filename = getTimestampedFilename('txt');
     triggerFileDownload(filename, txtContent, 'text/plain;charset=utf-8;');
   };
 

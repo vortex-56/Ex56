@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Activity, ActivityGroup, ScheduleType, SubActivity } from '../types';
 import { COLOR_PALETTE } from '../utils/colors';
 import { getTodayDateString, getTomorrowDateString } from '../utils/dateUtils';
-import { X, Plus, Trash2, Calendar, CheckSquare } from 'lucide-react';
+import { X, Plus, Trash2, Calendar, CheckSquare, Check } from 'lucide-react';
 
 interface ActivityModalProps {
   isOpen: boolean;
@@ -261,51 +261,60 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-5">
           
-          {/* Row 1: Name, Code, and Color */}
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
-            <div className="sm:col-span-2 space-y-1.5">
-              <label className="block text-xs font-semibold text-slate-700">
-                Nombre de la actividad *
-              </label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Ej. Meditar, 10 Planchas, Videos..."
-                required
-                className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all font-medium text-slate-900"
-              />
+          {/* Row 1: Name, Code, and Color Selection */}
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="sm:col-span-2 space-y-1.5">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Nombre de la actividad *
+                </label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Ej. Meditar, 10 Planchas, Videos..."
+                  required
+                  className="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all font-medium text-slate-900"
+                />
+              </div>
+
+              <div className="space-y-1.5 sm:col-span-1">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Código Corto
+                </label>
+                <input
+                  type="text"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.toUpperCase())}
+                  placeholder="Ej. MED"
+                  maxLength={6}
+                  className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all font-mono font-bold uppercase text-center text-slate-900"
+                  title="Código identificador (se mostrará cuando la columna se comprima)"
+                />
+              </div>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="block text-xs font-semibold text-slate-700">
-                Código Corto
-              </label>
-              <input
-                type="text"
-                value={code}
-                onChange={(e) => setCode(e.target.value.toUpperCase())}
-                placeholder="Ej. MED"
-                maxLength={6}
-                className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all font-mono font-bold uppercase text-center text-slate-900"
-                title="Código identificador (se mostrará cuando la columna se comprima)"
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="block text-xs font-semibold text-slate-700">
-                Color
-              </label>
-              <div className="flex items-center gap-1.5 flex-wrap pt-1">
-                {COLOR_PALETTE.slice(0, 5).map((c) => (
+            {/* Color Palette (16 distinct colors) */}
+            <div className="space-y-1.5 p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-semibold text-slate-700">
+                  Color de la Actividad (16 colores)
+                </label>
+                <span className="text-[11px] font-medium text-slate-500 flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-full border border-slate-300" style={{ backgroundColor: color }} />
+                  {COLOR_PALETTE.find(c => c.hex.toLowerCase() === color.toLowerCase())?.name || color}
+                </span>
+              </div>
+              <div className="grid grid-cols-8 gap-2 pt-1">
+                {COLOR_PALETTE.map((c) => (
                   <button
                     key={c.id}
                     type="button"
                     onClick={() => setColor(c.hex)}
-                    className={`w-5 h-5 rounded-full transition-transform cursor-pointer ${
+                    className={`w-6 h-6 sm:w-7 sm:h-7 rounded-full transition-transform cursor-pointer mx-auto ${
                       color.toLowerCase() === c.hex.toLowerCase()
-                        ? 'ring-2 ring-offset-2 ring-slate-900 scale-110'
-                        : 'hover:scale-105'
+                        ? 'ring-2 ring-offset-2 ring-slate-900 scale-110 shadow-xs'
+                        : 'hover:scale-105 opacity-90 hover:opacity-100'
                     }`}
                     style={{ backgroundColor: c.hex }}
                     title={c.name}
@@ -315,66 +324,55 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
             </div>
           </div>
 
-          {/* Row 2: Group assignment with inline delete and rename */}
-          <div className="space-y-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
-            <div className="flex items-center justify-between">
-              <label className="block text-xs font-semibold text-slate-700">
-                Grupo de Actividades (Categoría)
-              </label>
-              <div className="flex items-center gap-2 text-xs">
-                {!isCreatingNewGroup && (
+          {/* Row 2: Group assignment with vertical flow requested */}
+          <div className="space-y-2 p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+            {/* Línea 1: Grupo de Actividades (Categoría) */}
+            <label className="block text-xs font-semibold text-slate-700">
+              Grupo de Actividades (Categoría)
+            </label>
+
+            {/* Formulario crear nuevo grupo inline */}
+            {isCreatingNewGroup && (
+              <div className="bg-white p-3 rounded-lg border border-slate-200 space-y-2.5">
+                <span className="text-xs font-bold text-slate-800 block">Nuevo Grupo</span>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    type="text"
+                    value={newGroupName}
+                    onChange={(e) => setNewGroupName(e.target.value)}
+                    placeholder="Nombre del grupo (ej. Salud, Trabajo)..."
+                    className="flex-1 px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-md focus:border-amber-500"
+                  />
+                  <input
+                    type="text"
+                    value={newGroupCode}
+                    onChange={(e) => setNewGroupCode(e.target.value.toUpperCase())}
+                    placeholder="Cód (SAL)"
+                    maxLength={5}
+                    className="w-full sm:w-20 px-2 py-1.5 text-xs font-mono font-bold uppercase text-center bg-slate-50 border border-slate-200 rounded-md focus:border-amber-500"
+                  />
+                </div>
+                <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => {
-                      setIsCreatingNewGroup(true);
-                      setIsEditingCurrentGroup(false);
-                      setConfirmDeleteGroup(false);
-                    }}
-                    className="font-bold text-amber-800 hover:text-amber-950 hover:underline cursor-pointer"
+                    onClick={handleInlineGroupCreate}
+                    disabled={!newGroupName.trim()}
+                    className="flex-1 py-1.5 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-500 border border-amber-500/30 rounded-md disabled:opacity-50 cursor-pointer active:scale-95"
                   >
-                    + Crear nuevo grupo
+                    Crear y Asignar
                   </button>
-                )}
-              </div>
-            </div>
-
-            {/* Create new group inline */}
-            {isCreatingNewGroup && (
-              <div className="flex gap-2 items-center bg-white p-2.5 rounded-lg border border-slate-200">
-                <input
-                  type="text"
-                  value={newGroupName}
-                  onChange={(e) => setNewGroupName(e.target.value)}
-                  placeholder="Nombre del grupo (ej. Salud, Trabajo)..."
-                  className="flex-1 px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-md focus:border-amber-500"
-                />
-                <input
-                  type="text"
-                  value={newGroupCode}
-                  onChange={(e) => setNewGroupCode(e.target.value.toUpperCase())}
-                  placeholder="Cód (SAL)"
-                  maxLength={5}
-                  className="w-20 px-2 py-1.5 text-xs font-mono font-bold uppercase text-center bg-slate-50 border border-slate-200 rounded-md focus:border-amber-500"
-                />
-                <button
-                  type="button"
-                  onClick={handleInlineGroupCreate}
-                  disabled={!newGroupName.trim()}
-                  className="px-3 py-1.5 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-500 border border-amber-500/30 rounded-md disabled:opacity-50 cursor-pointer active:scale-95"
-                >
-                  Crear y Asignar
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsCreatingNewGroup(false)}
-                  className="px-2 py-1.5 text-xs text-slate-500 hover:text-slate-700 cursor-pointer"
-                >
-                  Cancelar
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsCreatingNewGroup(false)}
+                    className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700 cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                </div>
               </div>
             )}
 
-            {/* Edit existing selected group inline */}
+            {/* Formulario editar grupo inline */}
             {isEditingCurrentGroup && selectedGroupObj && (
               <div className="bg-white p-3 rounded-lg border border-amber-300 space-y-2.5">
                 <div className="flex items-center justify-between">
@@ -387,7 +385,7 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
                     <X className="w-3.5 h-3.5" />
                   </button>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-col sm:flex-row gap-2">
                   <input
                     type="text"
                     value={editingCurrentGroupName}
@@ -401,105 +399,118 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
                     onChange={(e) => setEditingCurrentGroupCode(e.target.value.toUpperCase())}
                     placeholder="Código (ej. SAL)..."
                     maxLength={5}
-                    className="w-24 px-2 py-1 text-xs font-mono font-bold uppercase text-center border border-slate-200 rounded-md focus:border-amber-500"
+                    className="w-full sm:w-24 px-2 py-1 text-xs font-mono font-bold uppercase text-center border border-slate-200 rounded-md focus:border-amber-500"
                   />
+                </div>
+                <div className="flex gap-2">
                   <button
                     type="button"
                     onClick={saveEditSelectedGroup}
-                    className="px-3 py-1 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-500 border border-amber-500/30 rounded-md cursor-pointer"
+                    className="flex-1 py-1 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-500 border border-amber-500/30 rounded-md cursor-pointer"
                   >
                     Guardar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingCurrentGroup(false)}
+                    className="px-3 py-1 text-xs text-slate-500 hover:text-slate-700 cursor-pointer"
+                  >
+                    Cancelar
                   </button>
                 </div>
               </div>
             )}
 
-            {/* Standard Dropdown with Edit and Delete Action Buttons */}
+            {/* Modo estándar con las 4 líneas requeridas */}
             {!isCreatingNewGroup && !isEditingCurrentGroup && (
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-2">
-                  <select
-                    value={groupId}
-                    onChange={(e) => {
-                      setGroupId(e.target.value);
-                      setConfirmDeleteGroup(false);
-                    }}
-                    className="flex-1 px-3.5 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-medium text-slate-800"
-                  >
-                    <option value="">Sin grupo (General)</option>
-                    {groups.map((g) => (
-                      <option key={g.id} value={g.id}>
-                        {g.code ? `[${g.code}] ` : ''}{g.name}
-                      </option>
-                    ))}
-                  </select>
+              <div className="space-y-2">
+                {/* Línea 2: Caja de grupos (Select desplegable) */}
+                <select
+                  value={groupId}
+                  onChange={(e) => {
+                    setGroupId(e.target.value);
+                    setConfirmDeleteGroup(false);
+                  }}
+                  className="w-full px-3.5 py-2 text-sm bg-white border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 font-medium text-slate-800"
+                >
+                  <option value="">Sin grupo (General)</option>
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.code ? `[${g.code}] ` : ''}{g.name}
+                    </option>
+                  ))}
+                </select>
 
-                  {/* Actions for the selected group */}
-                  {selectedGroupObj && (
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        type="button"
-                        onClick={startEditSelectedGroup}
-                        className="px-2.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-amber-50 hover:text-amber-800 transition-colors cursor-pointer"
-                        title="Renombrar o cambiar código del grupo"
-                      >
-                        Editar
-                      </button>
+                {/* Línea 3: Botones Editar y Borrar */}
+                {selectedGroupObj && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={startEditSelectedGroup}
+                      className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-amber-50 hover:text-amber-800 transition-colors cursor-pointer"
+                      title="Renombrar o cambiar código del grupo"
+                    >
+                      Editar
+                    </button>
 
-                      {confirmDeleteGroup ? (
-                        <div className="flex items-center gap-1 bg-red-50 p-0.5 rounded-lg border border-red-200">
-                          <button
-                            type="button"
-                            onClick={handleDeleteSelectedGroup}
-                            className="px-2 py-1 text-xs font-bold text-red-700 hover:bg-red-100 rounded-md cursor-pointer"
-                          >
-                            Confirmar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setConfirmDeleteGroup(false)}
-                            className="px-1.5 py-1 text-xs text-slate-500 hover:text-slate-700 cursor-pointer"
-                          >
-                            ✕
-                          </button>
-                        </div>
-                      ) : (
+                    {confirmDeleteGroup ? (
+                      <div className="flex items-center gap-1 bg-red-50 p-1 rounded-lg border border-red-200">
                         <button
                           type="button"
-                          onClick={() => setConfirmDeleteGroup(true)}
-                          className="p-2 text-slate-400 hover:text-red-600 bg-white border border-slate-200 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
-                          title="Eliminar este grupo"
+                          onClick={handleDeleteSelectedGroup}
+                          className="px-2 py-0.5 text-xs font-bold text-red-700 hover:bg-red-100 rounded-md cursor-pointer"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          Confirmar
                         </button>
-                      )}
-                    </div>
-                  )}
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteGroup(false)}
+                          className="px-1.5 py-0.5 text-xs text-slate-500 hover:text-slate-700 cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteGroup(true)}
+                        className="px-3 py-1.5 text-xs font-medium text-rose-600 bg-white border border-slate-200 rounded-lg hover:bg-red-50 transition-colors cursor-pointer flex items-center gap-1"
+                        title="Eliminar este grupo"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Borrar</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Línea 4: + Crear nuevo grupo */}
+                <div className="pt-0.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCreatingNewGroup(true);
+                      setIsEditingCurrentGroup(false);
+                      setConfirmDeleteGroup(false);
+                    }}
+                    className="text-xs font-bold text-amber-800 hover:text-amber-950 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                  >
+                    + Crear nuevo grupo
+                  </button>
                 </div>
               </div>
             )}
           </div>
 
           {/* Row 3: Dates & Duration */}
-          <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-slate-500" />
-                Vigencia y Rango de Fechas
-              </span>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={!hasEndDate}
-                  onChange={(e) => setHasEndDate(!e.target.checked)}
-                  className="rounded border-slate-300 text-amber-500 focus:ring-amber-400 w-4 h-4 accent-amber-500"
-                />
-                <span className="text-xs font-medium text-slate-700">
-                  Sin fecha final (Se extiende indefinidamente)
-                </span>
-              </label>
+          <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3.5">
+            {/* Línea 1: Solo el texto "Vigencia y Rango de Fechas" */}
+            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-900">
+              <Calendar className="w-3.5 h-3.5 text-slate-500" />
+              <span>Vigencia y Rango de Fechas</span>
             </div>
 
+            {/* Cajas de Fecha de Inicio y Fecha de Finalización */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-1">
                 <div className="flex items-center justify-between">
@@ -536,6 +547,21 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
                   }`}
                 />
               </div>
+            </div>
+
+            {/* Línea después de la caja de fecha de finalización: Sin fecha final */}
+            <div className="pt-1">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={!hasEndDate}
+                  onChange={(e) => setHasEndDate(!e.target.checked)}
+                  className="rounded border-slate-300 text-amber-500 focus:ring-amber-400 w-4 h-4 accent-amber-500 cursor-pointer"
+                />
+                <span className="text-xs font-medium text-slate-700">
+                  Sin fecha final (Se extiende indefinidamente)
+                </span>
+              </label>
             </div>
           </div>
 
@@ -652,59 +678,55 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
           </div>
 
           {/* Row 5: Sub-activities & Multiple Sessions */}
-          <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                  <CheckSquare className="w-3.5 h-3.5 text-amber-600" />
-                  Sesiones o Sub-Actividades con Código
-                </h4>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  Cada sub-actividad tiene su código y casilla esférica. La casilla cuadrada principal se completa al marcar todas las sesiones.
-                </p>
-              </div>
+          <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+            {/* Primera línea: Título */}
+            <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+              <CheckSquare className="w-3.5 h-3.5 text-amber-600" />
+              <span>Sesiones o Sub-Actividades con Código</span>
+            </h4>
 
-              {/* Quick Session Counter Buttons */}
-              <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-lg p-0.5 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => handleSessionsCountChange(0)}
-                  className={`px-2 py-1 text-xs rounded-md font-bold cursor-pointer transition-colors ${
-                    subActivities.length === 0 ? 'bg-amber-400 text-slate-950 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                  title="1 sola casilla por día"
-                >
-                  1 Box
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSessionsCountChange(2)}
-                  className={`px-2 py-1 text-xs rounded-md font-bold cursor-pointer transition-colors ${
-                    subActivities.length === 2 ? 'bg-amber-400 text-slate-950 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  2 Sesiones
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSessionsCountChange(3)}
-                  className={`px-2 py-1 text-xs rounded-md font-bold cursor-pointer transition-colors ${
-                    subActivities.length === 3 ? 'bg-amber-400 text-slate-950 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                  title="Ejemplo: 10 planchas en 3 sesiones"
-                >
-                  3 Sesiones
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSessionsCountChange(4)}
-                  className={`px-2 py-1 text-xs rounded-md font-bold cursor-pointer transition-colors ${
-                    subActivities.length === 4 ? 'bg-amber-400 text-slate-950 shadow-2xs' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  4 Pasos
-                </button>
-              </div>
+            {/* Siguientes líneas: Descripción */}
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Cada sub-actividad tiene su código y casilla esférica. La casilla cuadrada principal se completa al marcar todas las sesiones.
+            </p>
+
+            {/* Siguiente línea: Botones 1 caja, 2 cajas, 3 cajas y nada más */}
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => handleSessionsCountChange(0)}
+                className={`flex-1 py-2 px-3 text-xs rounded-lg font-bold cursor-pointer transition-all border text-center ${
+                  subActivities.length === 0 
+                    ? 'bg-amber-400 text-slate-950 border-amber-500/40 shadow-2xs ring-1 ring-amber-400/40' 
+                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                }`}
+                title="1 sola casilla por día"
+              >
+                1 caja
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSessionsCountChange(2)}
+                className={`flex-1 py-2 px-3 text-xs rounded-lg font-bold cursor-pointer transition-all border text-center ${
+                  subActivities.length === 2 
+                    ? 'bg-amber-400 text-slate-950 border-amber-500/40 shadow-2xs ring-1 ring-amber-400/40' 
+                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                2 cajas
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSessionsCountChange(3)}
+                className={`flex-1 py-2 px-3 text-xs rounded-lg font-bold cursor-pointer transition-all border text-center ${
+                  subActivities.length === 3 
+                    ? 'bg-amber-400 text-slate-950 border-amber-500/40 shadow-2xs ring-1 ring-amber-400/40' 
+                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                }`}
+                title="Ejemplo: 10 planchas en 3 sesiones"
+              >
+                3 cajas
+              </button>
             </div>
 
             {/* Sub-activities List with code and custom names */}
@@ -760,24 +782,36 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
           </div>
 
           {/* Row 6: Completion Status Toggle */}
-          <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg border border-slate-200">
+          <div className="flex flex-col gap-2 p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+            {/* Primera línea: Título */}
+            <span className="text-xs font-semibold text-slate-900">Estado de la Actividad</span>
+
+            {/* Segunda línea: Descripción */}
+            <p className="text-xs text-slate-500">
+              {isCompleted ? 'Marcada como terminada / archivada.' : 'Activa en el seguimiento diario.'}
+            </p>
+
+            {/* Siguiente línea: Botón En Curso / ✓ Terminada (icono y texto en la misma línea) */}
             <div>
-              <span className="text-xs font-semibold text-slate-900">Estado de la Actividad</span>
-              <p className="text-xs text-slate-500">
-                {isCompleted ? 'Marcada como terminada / archivada.' : 'Activa en el seguimiento diario.'}
-              </p>
+              <button
+                type="button"
+                onClick={() => setIsCompleted(!isCompleted)}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
+                  isCompleted
+                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs hover:bg-emerald-700'
+                    : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
+                }`}
+              >
+                {isCompleted ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                    <span>Terminada</span>
+                  </>
+                ) : (
+                  <span>En Curso</span>
+                )}
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => setIsCompleted(!isCompleted)}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
-                isCompleted
-                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs'
-                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-100'
-              }`}
-            >
-              {isCompleted ? '✓ Terminada' : 'En Curso'}
-            </button>
           </div>
 
           {/* Footer Submit Buttons */}
