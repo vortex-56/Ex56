@@ -13,7 +13,8 @@ import {
   getDaysBetweenDates, 
   getTodayDateString, 
   formatFriendlyDate,
-  getClusterDatesForDate 
+  getClusterDatesForDate,
+  getActiveSlotDates 
 } from './utils/dateUtils';
 import { TopBar } from './components/TopBar';
 import { MatrixGrid } from './components/MatrixGrid';
@@ -384,6 +385,80 @@ export default function App() {
     const updatedProject: Project = {
       ...currentProject,
       activities: updatedActivities,
+      updatedAt: new Date().toISOString(),
+    };
+
+    setCurrentProject(updatedProject);
+    setHasUnsavedChanges(true);
+    saveProject(updatedProject);
+  };
+
+  // Analyzer Completion Handlers:
+  // Completes the active slot (single day if daily, or active cluster of 2 or 3 days if day_clusters)
+  // while keeping the activity status in progress (isCompleted: false / "en curso")
+  const handleCompleteActiveSlot = (activityId: string, markDone: boolean) => {
+    if (!currentProject) return;
+    pushUndoSnapshot();
+
+    const activity = currentProject.activities.find(a => a.id === activityId);
+    if (!activity) return;
+
+    const targetDates = getActiveSlotDates(activity);
+    const nextLogs = { ...currentProject.completionLogs };
+
+    targetDates.forEach(dStr => {
+      if (activity.subActivities.length > 0) {
+        activity.subActivities.forEach(sub => {
+          const key = `${activity.id}_${sub.id}_${dStr}`;
+          if (markDone) {
+            nextLogs[key] = true;
+          } else {
+            delete nextLogs[key];
+          }
+        });
+      } else {
+        const key = `${activity.id}_main_${dStr}`;
+        if (markDone) {
+          nextLogs[key] = true;
+        } else {
+          delete nextLogs[key];
+        }
+      }
+    });
+
+    const updatedProject: Project = {
+      ...currentProject,
+      completionLogs: nextLogs,
+      updatedAt: new Date().toISOString(),
+    };
+
+    setCurrentProject(updatedProject);
+    setHasUnsavedChanges(true);
+    saveProject(updatedProject);
+  };
+
+  const handleToggleSubInActiveSlot = (activityId: string, subId: string, markDone: boolean) => {
+    if (!currentProject) return;
+    pushUndoSnapshot();
+
+    const activity = currentProject.activities.find(a => a.id === activityId);
+    if (!activity) return;
+
+    const targetDates = getActiveSlotDates(activity);
+    const nextLogs = { ...currentProject.completionLogs };
+
+    targetDates.forEach(dStr => {
+      const key = `${activity.id}_${subId}_${dStr}`;
+      if (markDone) {
+        nextLogs[key] = true;
+      } else {
+        delete nextLogs[key];
+      }
+    });
+
+    const updatedProject: Project = {
+      ...currentProject,
+      completionLogs: nextLogs,
       updatedAt: new Date().toISOString(),
     };
 
@@ -827,6 +902,8 @@ export default function App() {
             activeFilterGroup={activeFilterGroup}
             onSetFilterGroup={setActiveFilterGroup}
             onToggleActivityCompletion={handleToggleActivityCompletion}
+            onCompleteActiveSlot={handleCompleteActiveSlot}
+            onToggleSubInActiveSlot={handleToggleSubInActiveSlot}
           />
         )}
 

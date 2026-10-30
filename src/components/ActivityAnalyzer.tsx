@@ -1,24 +1,27 @@
 import React, { useState } from 'react';
 import { Activity, SubActivity } from '../types';
 import { Activity as ActivityIcon, Plus, X, Check, Flag, Play, CheckCircle2 } from 'lucide-react';
+import { getActiveSlotDates, formatFriendlyDate } from '../utils/dateUtils';
 
 interface ActivityAnalyzerProps {
   activities: Activity[];
   analyzedActivityIds: string[];
+  completionLogs: Record<string, boolean>;
   onAddAnalyzedActivity: (activityId: string) => void;
   onRemoveAnalyzedActivity: (activityId: string) => void;
-  onToggleActivityCompletion: (activityId: string, isCompleted: boolean) => void;
+  onCompleteActiveSlot: (activityId: string, markDone: boolean) => void;
+  onToggleSubInActiveSlot: (activityId: string, subId: string, markDone: boolean) => void;
 }
 
 export const ActivityAnalyzer: React.FC<ActivityAnalyzerProps> = ({
   activities,
   analyzedActivityIds,
+  completionLogs,
   onAddAnalyzedActivity,
   onRemoveAnalyzedActivity,
-  onToggleActivityCompletion,
+  onCompleteActiveSlot,
+  onToggleSubInActiveSlot,
 }) => {
-  // Local state for tracking checked subactivities within the analyzer
-  const [completedSubs, setCompletedSubs] = useState<Record<string, Record<string, boolean>>>({});
   const [selectedToAdd, setSelectedToAdd] = useState<string>('');
   // Local state for tracking collapsed subactivity boxes by activity ID
   const [collapsedSubBoxes, setCollapsedSubBoxes] = useState<Record<string, boolean>>({});
@@ -43,50 +46,6 @@ export const ActivityAnalyzer: React.FC<ActivityAnalyzerProps> = ({
   const getSubCode = (sub: SubActivity, parentCode: string, idx: number) => {
     if (sub.code && sub.code.trim()) return sub.code.trim().toUpperCase();
     return `${parentCode}.${idx + 1}`;
-  };
-
-  const handleToggleSub = (act: Activity, subId: string) => {
-    const actSubs = completedSubs[act.id] || {};
-    const willBeChecked = !actSubs[subId];
-    const nextSubs = { ...actSubs, [subId]: willBeChecked };
-
-    setCompletedSubs(prev => ({
-      ...prev,
-      [act.id]: nextSubs,
-    }));
-
-    // If all subactivities are now checked, automatically mark the activity as completed ("Fin" turns ON)
-    const totalSubs = act.subActivities.length;
-    const allChecked = totalSubs > 0 && act.subActivities.every(s => s.id === subId ? willBeChecked : !!actSubs[s.id]);
-    
-    if (allChecked && !act.isCompleted) {
-      onToggleActivityCompletion(act.id, true);
-    } else if (!allChecked && act.isCompleted) {
-      onToggleActivityCompletion(act.id, false);
-    }
-  };
-
-  const handleToggleFin = (act: Activity) => {
-    const nextStatus = !act.isCompleted;
-    onToggleActivityCompletion(act.id, nextStatus);
-
-    // If turned on and has subactivities, mark all subactivities checked
-    if (nextStatus && act.subActivities.length > 0) {
-      const allDone: Record<string, boolean> = {};
-      act.subActivities.forEach(s => {
-        allDone[s.id] = true;
-      });
-      setCompletedSubs(prev => ({
-        ...prev,
-        [act.id]: allDone,
-      }));
-    } else if (!nextStatus && act.subActivities.length > 0) {
-      // If turned off, reset subactivities
-      setCompletedSubs(prev => ({
-        ...prev,
-        [act.id]: {},
-      }));
-    }
   };
 
   const handleAddSubmit = (e: React.FormEvent) => {
@@ -114,7 +73,7 @@ export const ActivityAnalyzer: React.FC<ActivityAnalyzerProps> = ({
               </span>
             </div>
             <p className="text-[11px] text-slate-500">
-              Monitorea el progreso con línea temporal de Inicio a Fin y seguimiento de sesiones.
+              Monitorea el progreso con línea temporal de Inicio a Fin. Al completarla marca la casilla o conjunto actual en curso.
             </p>
           </div>
         </div>
@@ -148,7 +107,7 @@ export const ActivityAnalyzer: React.FC<ActivityAnalyzerProps> = ({
               className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl transition-all shadow-2xs shrink-0 cursor-pointer w-full sm:w-auto"
             >
               <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-              <span>+ Agregar actividad</span>
+              <span>Agregar actividad</span>
             </button>
           </div>
         </form>
@@ -170,18 +129,33 @@ export const ActivityAnalyzer: React.FC<ActivityAnalyzerProps> = ({
       <div className="space-y-3">
         {analyzedActivities.map((act) => {
           const actCode = getActivityCode(act);
-          const actSubs = completedSubs[act.id] || {};
           const hasSubs = act.subActivities.length > 0;
           const isCollapsed = !!collapsedSubBoxes[act.id];
-          const completedSubCount = act.subActivities.filter(s => !!actSubs[s.id]).length;
-          const isFinActive = act.isCompleted || (hasSubs && completedSubCount === act.subActivities.length && act.subActivities.length > 0);
+          const targetDates = getActiveSlotDates(act);
+
+          // Calculate completed subactivities for the active slot/cluster
+          const completedSubCount = hasSubs
+            ? act.subActivities.filter(sub => targetDates.some(d => !!completionLogs[`${act.id}_${sub.id}_${d}`])).length
+            : 0;
+
+          // Is the active execution slot / cluster completed?
+          const isSlotCompleted = hasSubs
+            ? completedSubCount === act.subActivities.length && act.subActivities.length > 0
+            : targetDates.some(d => !!completionLogs[`${act.id}_main_${d}`]);
+
+          // Fin node is active when this slot / cycle is completed
+          const isFinActive = isSlotCompleted;
+
+          const slotDescription = act.scheduleType === 'day_clusters'
+            ? `Conjunto actual: ${targetDates.length} días (${targetDates.map(d => d.slice(5)).join(' - ')})`
+            : `Día actual: ${formatFriendlyDate(targetDates[0])}`;
 
           return (
             <div
               key={act.id}
               className="bg-white rounded-xl border border-slate-200/90 shadow-xs p-3 sm:p-4 space-y-3 transition-all hover:border-amber-300"
             >
-              {/* Row 1: Code, Name, Status, and Close button */}
+              {/* Row 1: Code, Name, Target slot info, Status (Always "En curso"), and Close button */}
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div className="flex items-center gap-2 min-w-0">
                   <button
@@ -202,17 +176,18 @@ export const ActivityAnalyzer: React.FC<ActivityAnalyzerProps> = ({
                   <span className="font-bold text-xs sm:text-sm text-slate-900 truncate">
                     {act.name}
                   </span>
+                  <span className="text-[10px] text-slate-500 font-medium bg-slate-100 px-2 py-0.5 rounded-md hidden sm:inline-block">
+                    {slotDescription}
+                  </span>
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
+                  {/* Status stays 'En curso' as explicitly requested */}
                   <span
-                    className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border transition-colors ${
-                      isFinActive
-                        ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                        : 'bg-amber-50 text-amber-900 border-amber-300'
-                    }`}
+                    className="text-[11px] font-bold px-2.5 py-0.5 rounded-full border bg-amber-50 text-amber-900 border-amber-300 shadow-2xs"
+                    title="Esta actividad se mantiene en curso mientras registra ejecuciones"
                   >
-                    {isFinActive ? 'Terminada' : 'En proceso'}
+                    En curso
                   </span>
                   <button
                     onClick={() => onRemoveAnalyzedActivity(act.id)}
@@ -222,6 +197,11 @@ export const ActivityAnalyzer: React.FC<ActivityAnalyzerProps> = ({
                     <X className="w-4 h-4" />
                   </button>
                 </div>
+              </div>
+
+              {/* Mobile slot description */}
+              <div className="sm:hidden text-[10px] text-slate-500 font-medium">
+                {slotDescription}
               </div>
 
               {/* Row 2: Sub-activities with checkboxes (hidden when collapsed via clicking the code) */}
@@ -241,7 +221,7 @@ export const ActivityAnalyzer: React.FC<ActivityAnalyzerProps> = ({
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
                     {act.subActivities.map((sub, sIdx) => {
-                      const isSubChecked = !!actSubs[sub.id];
+                      const isSubChecked = targetDates.some(d => !!completionLogs[`${act.id}_${sub.id}_${d}`]);
                       const subCode = getSubCode(sub, actCode, sIdx);
                       return (
                         <label
@@ -255,7 +235,7 @@ export const ActivityAnalyzer: React.FC<ActivityAnalyzerProps> = ({
                           <input
                             type="checkbox"
                             checked={isSubChecked}
-                            onChange={() => handleToggleSub(act, sub.id)}
+                            onChange={() => onToggleSubInActiveSlot(act.id, sub.id, !isSubChecked)}
                             className="rounded border-slate-300 text-amber-500 focus:ring-amber-400 accent-amber-500 w-3.5 h-3.5 cursor-pointer shrink-0"
                           />
                           <span
@@ -313,12 +293,12 @@ export const ActivityAnalyzer: React.FC<ActivityAnalyzerProps> = ({
 
                   {/* Intermediate Nodes for each Sub-activity */}
                   {hasSubs && act.subActivities.map((sub, sIdx) => {
-                    const isSubChecked = !!actSubs[sub.id];
+                    const isSubChecked = targetDates.some(d => !!completionLogs[`${act.id}_${sub.id}_${d}`]);
                     return (
                       <div
                         key={sub.id}
                         className="relative z-10 flex flex-col items-center cursor-pointer group"
-                        onClick={() => handleToggleSub(act, sub.id)}
+                        onClick={() => onToggleSubInActiveSlot(act.id, sub.id, !isSubChecked)}
                         title={`Sesión ${sIdx + 1}: ${sub.name} (${isSubChecked ? 'Completada' : 'Pendiente'})`}
                       >
                         <div
@@ -351,11 +331,15 @@ export const ActivityAnalyzer: React.FC<ActivityAnalyzerProps> = ({
                     );
                   })}
 
-                  {/* Node Last: FIN (Clickable, turns on when completed) */}
+                  {/* Node Last: FIN (Clickable, turns on when completed, marks the slot in matrix, keeps activity in progress) */}
                   <div 
                     className="relative z-10 flex flex-col items-center cursor-pointer group"
-                    onClick={() => handleToggleFin(act)}
-                    title={isFinActive ? 'Fin alcanzado (clic para reabrir)' : 'Clic para marcar la actividad como Terminada'}
+                    onClick={() => onCompleteActiveSlot(act.id, !isFinActive)}
+                    title={
+                      isFinActive
+                        ? `Marcado en la matriz (${slotDescription}). Clic para desmarcar.`
+                        : `Clic para marcar como realizada en la matriz (${slotDescription}).`
+                    }
                   >
                     <div
                       className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center transition-all ${

@@ -294,3 +294,57 @@ export function formatFriendlyDate(dateStr: string): string {
   const monthName = SPANISH_MONTHS[d.getMonth()];
   return `${dayName}, ${d.getDate()} de ${monthName}`;
 }
+
+/**
+ * Returns the date strings for the active execution slot of an activity:
+ * - If day_clusters: returns the single cluster of 2, 3, etc. days covering today, or the active cluster closest to today.
+ * - If specific_days: returns today if active, or closest active day.
+ * - If daily / finite / other: returns today's date string.
+ */
+export function getActiveSlotDates(activity: Activity): string[] {
+  const todayStr = getTodayDateString();
+
+  if (activity.scheduleType === 'day_clusters' && activity.clusterSize) {
+    const todayCluster = getClusterDatesForDate(activity, todayStr);
+    if (todayCluster.length > 0) {
+      return todayCluster;
+    }
+
+    // Look for the closest valid cluster around today (search +/- 7 days)
+    const todayDate = parseYYYYMMDD(todayStr);
+    for (let offset = 1; offset <= 7; offset++) {
+      const dMinus = new Date(todayDate);
+      dMinus.setDate(todayDate.getDate() - offset);
+      const cMinus = getClusterDatesForDate(activity, formatDateToYYYYMMDD(dMinus));
+      if (cMinus.length > 0) return cMinus;
+
+      const dPlus = new Date(todayDate);
+      dPlus.setDate(todayDate.getDate() + offset);
+      const cPlus = getClusterDatesForDate(activity, formatDateToYYYYMMDD(dPlus));
+      if (cPlus.length > 0) return cPlus;
+    }
+
+    return [todayStr];
+  }
+
+  if (activity.scheduleType === 'specific_days') {
+    if (isActivityActiveOnDate(activity, todayStr)) {
+      return [todayStr];
+    }
+    const todayDate = parseYYYYMMDD(todayStr);
+    for (let offset = 1; offset <= 7; offset++) {
+      const dMinus = new Date(todayDate);
+      dMinus.setDate(todayDate.getDate() - offset);
+      const sMinus = formatDateToYYYYMMDD(dMinus);
+      if (isActivityActiveOnDate(activity, sMinus)) return [sMinus];
+
+      const dPlus = new Date(todayDate);
+      dPlus.setDate(todayDate.getDate() + offset);
+      const sPlus = formatDateToYYYYMMDD(dPlus);
+      if (isActivityActiveOnDate(activity, sPlus)) return [sPlus];
+    }
+    return [todayStr];
+  }
+
+  return [todayStr];
+}

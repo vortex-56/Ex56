@@ -42,6 +42,8 @@ interface MatrixGridProps {
   activeFilterGroup: string | null;
   onSetFilterGroup: (groupId: string | null) => void;
   onToggleActivityCompletion?: (activityId: string, isCompleted: boolean) => void;
+  onCompleteActiveSlot?: (activityId: string, markDone: boolean) => void;
+  onToggleSubInActiveSlot?: (activityId: string, subId: string, markDone: boolean) => void;
 }
 
 export const MatrixGrid: React.FC<MatrixGridProps> = ({
@@ -69,6 +71,8 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
   activeFilterGroup,
   onSetFilterGroup,
   onToggleActivityCompletion,
+  onCompleteActiveSlot,
+  onToggleSubInActiveSlot,
 }) => {
   // Activity Analyzer state (up to 3 activities)
   const [isAnalyzerOpen, setIsAnalyzerOpen] = useState(false);
@@ -496,9 +500,11 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
         <ActivityAnalyzer
           activities={activities}
           analyzedActivityIds={analyzedActivityIds}
+          completionLogs={completionLogs}
           onAddAnalyzedActivity={handleAddAnalyzedActivity}
           onRemoveAnalyzedActivity={handleRemoveAnalyzedActivity}
-          onToggleActivityCompletion={onToggleActivityCompletion || (() => {})}
+          onCompleteActiveSlot={onCompleteActiveSlot || (() => {})}
+          onToggleSubInActiveSlot={onToggleSubInActiveSlot || (() => {})}
         />
       )}
 
@@ -569,23 +575,25 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
                 )}
               </th>
 
-              {/* Day Columns Headers with larger typography */}
+              {/* Day Columns Headers with larger typography and prominent today shading */}
               {days.map((day) => {
                 return (
                   <th
                     key={day.dateStr}
-                    className={`w-[42px] min-w-[42px] max-w-[42px] sm:w-[54px] sm:min-w-[54px] sm:max-w-[54px] py-2 px-1 text-center border-r border-slate-200 transition-colors ${
-                      day.isToday ? 'bg-amber-50/90 font-bold text-amber-950' : ''
+                    className={`w-[42px] min-w-[42px] max-w-[42px] sm:w-[54px] sm:min-w-[54px] sm:max-w-[54px] py-2 px-1 text-center transition-colors ${
+                      day.isToday 
+                        ? 'bg-amber-200/95 font-black text-amber-950 border-x-2 border-amber-400 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.25)]' 
+                        : 'border-r border-slate-200'
                     } ${day.isWeekend && !day.isToday ? 'bg-slate-100/70' : ''}`}
                   >
                     <div className="flex flex-col items-center">
-                      <span className={`text-[10px] sm:text-xs uppercase font-bold tracking-wider ${day.isToday ? 'text-amber-800' : 'text-slate-500'}`}>
+                      <span className={`text-[10px] sm:text-xs uppercase tracking-wider ${day.isToday ? 'text-amber-900 font-black' : 'text-slate-500 font-bold'}`}>
                         {day.dayName.slice(0, 3)}
                       </span>
                       <span
-                        className={`text-xs sm:text-sm tabular-nums mt-0.5 inline-flex items-center justify-center w-6 h-6 sm:w-7 sm:h-7 rounded-full font-bold ${
+                        className={`text-xs sm:text-sm tabular-nums mt-0.5 inline-flex items-center justify-center w-6 h-6 sm:w-7 sm:h-7 rounded-full font-black ${
                           day.isToday
-                            ? 'bg-amber-400 text-slate-950 font-bold shadow-2xs border border-amber-500/30'
+                            ? 'bg-amber-500 text-slate-950 shadow-sm ring-2 ring-amber-400/50 border border-amber-600/30'
                             : 'text-slate-800'
                         }`}
                       >
@@ -748,10 +756,12 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
                         return (
                           <td
                             key={day.dateStr}
-                            className={`w-[42px] min-w-[42px] max-w-[42px] sm:w-[54px] sm:min-w-[54px] sm:max-w-[54px] p-1 text-center border-r border-slate-200 transition-colors ${
-                              day.isToday ? 'bg-amber-100/30' : ''
+                            className={`w-[42px] min-w-[42px] max-w-[42px] sm:w-[54px] sm:min-w-[54px] sm:max-w-[54px] p-1 text-center transition-colors ${
+                              day.isToday 
+                                ? 'bg-amber-200/50 border-x-2 border-amber-400/80 shadow-[inset_0_0_8px_rgba(245,158,11,0.12)]' 
+                                : 'border-r border-slate-200'
                             }`}
-                            style={{ backgroundColor: groupRowBg }}
+                            style={{ backgroundColor: day.isToday ? '#fde68a70' : groupRowBg }}
                           >
                             {/* If group has showBox activated: render checkbox */}
                             {group.showBox && dayStatus.hasActs ? (
@@ -1001,13 +1011,15 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
                                 }
                               }
 
-                              return (
+                               return (
                                 <td
                                   key={day.dateStr}
-                                  className={`w-[42px] min-w-[42px] max-w-[42px] sm:w-[54px] sm:min-w-[54px] sm:max-w-[54px] p-1 text-center border-r border-slate-200 transition-colors ${
-                                    day.isToday ? 'bg-amber-50/30' : ''
+                                  className={`w-[42px] min-w-[42px] max-w-[42px] sm:w-[54px] sm:min-w-[54px] sm:max-w-[54px] p-1 text-center transition-colors ${
+                                    day.isToday 
+                                      ? 'bg-amber-100/80 border-x-2 border-amber-400/80 shadow-[inset_0_0_6px_rgba(245,158,11,0.15)] font-semibold' 
+                                      : 'border-r border-slate-200'
                                   }`}
-                                  style={activityRowBg ? { backgroundColor: activityRowBg } : undefined}
+                                  style={{ backgroundColor: day.isToday ? '#fef3c7' : (activityRowBg || undefined) }}
                                 >
                                   {isActive ? (
                                     <div 
@@ -1189,9 +1201,12 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
                                     return (
                                       <td
                                         key={day.dateStr}
-                                        className={`w-[42px] min-w-[42px] max-w-[42px] sm:w-[54px] sm:min-w-[54px] sm:max-w-[54px] p-1 text-center border-r border-slate-200 ${
-                                          day.isToday ? 'bg-amber-50/20' : ''
+                                        className={`w-[42px] min-w-[42px] max-w-[42px] sm:w-[54px] sm:min-w-[54px] sm:max-w-[54px] p-1 text-center transition-colors ${
+                                          day.isToday 
+                                            ? 'bg-amber-100/70 border-x-2 border-amber-400/80 shadow-[inset_0_0_6px_rgba(245,158,11,0.12)]' 
+                                            : 'border-r border-slate-200'
                                         }`}
+                                        style={{ backgroundColor: day.isToday ? '#fef3c7' : (activityRowBg || undefined) }}
                                       >
                                         {isActive ? (
                                           <div 
