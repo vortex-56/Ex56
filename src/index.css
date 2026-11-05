@@ -14,7 +14,7 @@
   }
 }
 
-/* Custom scrollbars for the high-density matrix grid */
+/* Custom scrollbars for the high-density matrix grid (desktop) */
 .matrix-scroll::-webkit-scrollbar {
   height: 8px;
   width: 8px;
@@ -28,4 +28,62 @@
 }
 .matrix-scroll::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
+}
+
+/* Ocultar barra de desplazamiento SOLO en versión táctil (móvil y tablet con pantalla táctil) */
+@media (hover: none) and (pointer: coarse) {
+  /* En versión táctil, ocultar barras de desplazamiento para que el desplazamiento sea por arrastre */
+  html,
+  body,
+  #root,
+  main,
+  div,
+  table,
+  tbody,
+  thead,
+  section,
+  aside {
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+  }
+
+  ::-webkit-scrollbar {
+    display: none !important;
+    width: 0px !important;
+    height: 0px !important;
+    background: transparent !important;
+  }
+}
+
+/* Soporte para detección explícita de dispositivo táctil */
+html.is-touch-device,
+html.is-touch-device body,
+html.is-touch-device #root,
+html.is-touch-device main,
+html.is-touch-device div,
+html.is-touch-device table,
+html.is-touch-device tbody,
+html.is-touch-device thead,
+html.is-touch-device section,
+html.is-touch-device aside {
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+
+html.is-touch-device ::-webkit-scrollbar,
+html.is-touch-device *::-webkit-scrollbar {
+  display: none !important;
+  width: 0px !important;
+  height: 0px !important;
+  background: transparent !important;
+}
+
+/* Zonas de arrastre vertical (actividades, grupos, recursos, resúmenes, columnas fijas) */
+.touch-vertical-zone {
+  touch-action: pan-y !important;
+}
+
+/* Zonas de arrastre horizontal (fechas del calendario y cajas de días) */
+.touch-horizontal-zone {
+  touch-action: pan-x !important;
 }

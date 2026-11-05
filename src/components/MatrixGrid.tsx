@@ -211,6 +211,41 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
     }, 60);
   };
 
+  // Arrastre vertical en zonas que no se mueven de derecha a izquierda
+  const verticalIsDown = useRef(false);
+  const verticalStartY = useRef(0);
+  const verticalScrollTop = useRef(0);
+  const verticalIsDragging = useRef(false);
+
+  const handleVerticalPointerDown = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest('button, input, select, textarea, a, .no-drag')) {
+      return;
+    }
+    verticalIsDown.current = true;
+    verticalIsDragging.current = false;
+    verticalStartY.current = e.clientY;
+    verticalScrollTop.current = window.scrollY;
+  };
+
+  const handleVerticalPointerMove = (e: React.PointerEvent) => {
+    if (!verticalIsDown.current) return;
+    const deltaY = e.clientY - verticalStartY.current;
+    if (Math.abs(deltaY) > 4) {
+      verticalIsDragging.current = true;
+      window.scrollTo({
+        top: verticalScrollTop.current - deltaY,
+        behavior: 'instant' as ScrollBehavior,
+      });
+    }
+  };
+
+  const handleVerticalPointerUp = () => {
+    verticalIsDown.current = false;
+    setTimeout(() => {
+      verticalIsDragging.current = false;
+    }, 60);
+  };
+
   const desktopScrollRef = useRef<HTMLDivElement>(null);
   const desktopIsDown = useRef(false);
   const desktopStartX = useRef(0);
@@ -648,11 +683,11 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
           onMouseMove={handleMobileMouseMove}
           onMouseUp={handleMobileMouseUp}
           onMouseLeave={handleMobileMouseUp}
-          className="overflow-x-auto overscroll-x-contain touch-pan-x [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden w-full select-none cursor-grab active:cursor-grabbing"
+          className="overflow-x-auto overscroll-x-contain touch-manipulation [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden w-full select-none cursor-grab active:cursor-grabbing"
         >
           <div className="min-w-max">
             {/* LÍNEA 2: Días Header (e.g. Lun 2 Nov, Mar 3 Nov...) */}
-            <div className="flex bg-slate-100/95 border-b border-slate-200 sticky top-0 z-20">
+            <div className="flex bg-slate-100/95 border-b border-slate-200 sticky top-0 z-20 touch-pan-x touch-horizontal-zone">
               {days.map((day) => (
                 <div
                   key={day.dateStr}
@@ -704,14 +739,18 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
                     {/* LÍNEA DE GRUPO (Sticky a la izquierda dentro del scroll horizontal) */}
                     {group && (
                       <div 
-                        className="sticky left-0 w-[calc(100vw-24px)] max-w-[calc(100vw-24px)] border-b border-slate-200/90 pl-2 pr-1.5 py-1.5 flex items-center justify-between gap-1 z-10 transition-colors"
+                        className="sticky left-0 w-[calc(100vw-24px)] max-w-[calc(100vw-24px)] border-b border-slate-200/90 pl-2 pr-1.5 py-1.5 flex items-center justify-between gap-1 z-10 transition-colors touch-pan-y touch-vertical-zone cursor-ns-resize"
                         style={{ backgroundColor: groupRowBg }}
+                        onPointerDown={handleVerticalPointerDown}
+                        onPointerMove={handleVerticalPointerMove}
+                        onPointerUp={handleVerticalPointerUp}
+                        onPointerCancel={handleVerticalPointerUp}
                       >
                         {/* Left: Group 3-state posture button & name */}
                         <button
                           type="button"
                           onClick={(e) => {
-                            if (mobileIsDragging.current) {
+                            if (mobileIsDragging.current || verticalIsDragging.current) {
                               e.stopPropagation();
                               return;
                             }
@@ -880,13 +919,19 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
                           <div key={activity.id} className="border-t border-slate-200/60">
                             
                             {/* LÍNEA DE ACTIVIDAD (Sticky a la izquierda) */}
-                            <div className="sticky left-0 w-[calc(100vw-24px)] max-w-[calc(100vw-24px)] bg-slate-50/95 border-b border-slate-200/70 pl-2 pr-1.5 py-1.5 flex items-center justify-between gap-1 z-10">
+                            <div 
+                              className="sticky left-0 w-[calc(100vw-24px)] max-w-[calc(100vw-24px)] bg-slate-50/95 border-b border-slate-200/70 pl-2 pr-1.5 py-1.5 flex items-center justify-between gap-1 z-10 touch-pan-y touch-vertical-zone cursor-ns-resize"
+                              onPointerDown={handleVerticalPointerDown}
+                              onPointerMove={handleVerticalPointerMove}
+                              onPointerUp={handleVerticalPointerUp}
+                              onPointerCancel={handleVerticalPointerUp}
+                            >
                               <div className="flex items-center gap-1.5 min-w-0 flex-1">
                                 {hasSubActivities ? (
                                   <button
                                     type="button"
                                     onClick={(e) => {
-                                      if (mobileIsDragging.current) return;
+                                      if (mobileIsDragging.current || verticalIsDragging.current) return;
                                       toggleSubActivityExpand(activity.id, posture);
                                     }}
                                     className="p-0.5 text-slate-500 hover:text-amber-800 transition-colors shrink-0 cursor-pointer"
@@ -918,7 +963,7 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
                                     activity.isCompleted ? 'line-through text-slate-400' : 'text-slate-900'
                                   }`}
                                   onClick={(e) => {
-                                    if (mobileIsDragging.current) return;
+                                    if (mobileIsDragging.current || verticalIsDragging.current) return;
                                     onEditActivity(activity);
                                   }}
                                   title={activity.name}
@@ -937,7 +982,7 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
                                 <button
                                   type="button"
                                   onClick={(e) => {
-                                    if (mobileIsDragging.current) return;
+                                    if (mobileIsDragging.current || verticalIsDragging.current) return;
                                     onEditActivity(activity);
                                   }}
                                   className="p-1 text-slate-400 hover:text-amber-800 rounded hover:bg-slate-200/50 cursor-pointer shrink-0"
@@ -951,7 +996,7 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
                                     <button
                                       type="button"
                                       onClick={(e) => {
-                                        if (mobileIsDragging.current) return;
+                                        if (mobileIsDragging.current || verticalIsDragging.current) return;
                                         onDeleteActivity(activity.id);
                                         setConfirmDeleteActivityId(null);
                                       }}
@@ -974,7 +1019,7 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
                                   <button
                                     type="button"
                                     onClick={(e) => {
-                                      if (mobileIsDragging.current) return;
+                                      if (mobileIsDragging.current || verticalIsDragging.current) return;
                                       setConfirmDeleteActivityId(activity.id);
                                     }}
                                     className="p-1 text-slate-400 hover:text-red-600 rounded hover:bg-red-50 transition-colors cursor-pointer shrink-0"
@@ -987,7 +1032,7 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
                             </div>
 
                             {/* LÍNEA DE BOXES DE DÍAS DE LA ACTIVIDAD */}
-                            <div className="flex bg-white h-[46px]">
+                            <div className="flex bg-white h-[46px] touch-pan-x touch-horizontal-zone">
                               {days.map((day) => {
                                 const isActive = isActivityActiveOnDate(activity, day.dateStr);
                                 const status = getParentDayStatus(activity, day.dateStr);
@@ -1058,7 +1103,13 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
                                 return (
                                   <div key={sub.id} className="border-t border-slate-100">
                                     {/* LÍNEA DE SUBACTIVIDAD (Sticky a la izquierda) */}
-                                    <div className="sticky left-0 w-[calc(100vw-24px)] max-w-[calc(100vw-24px)] bg-slate-100/90 border-b border-slate-200/60 pl-6 pr-2 py-1 flex items-center gap-1.5 z-10">
+                                    <div 
+                                      className="sticky left-0 w-[calc(100vw-24px)] max-w-[calc(100vw-24px)] bg-slate-100/90 border-b border-slate-200/60 pl-6 pr-2 py-1 flex items-center gap-1.5 z-10 touch-pan-y touch-vertical-zone cursor-ns-resize"
+                                      onPointerDown={handleVerticalPointerDown}
+                                      onPointerMove={handleVerticalPointerMove}
+                                      onPointerUp={handleVerticalPointerUp}
+                                      onPointerCancel={handleVerticalPointerUp}
+                                    >
                                       <span className="text-[10px] font-mono font-bold px-1 py-0.2 rounded bg-white text-slate-700 border border-slate-200 shrink-0">
                                         {subCode}
                                       </span>
@@ -1069,7 +1120,7 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
                                     </div>
 
                                     {/* LÍNEA DE BOXES DE DÍAS DE LA SUBACTIVIDAD */}
-                                    <div className="flex bg-slate-50/50 h-[42px]">
+                                    <div className="flex bg-slate-50/50 h-[42px] touch-pan-x touch-horizontal-zone">
                                       {days.map((day) => {
                                         const isActive = isActivityActiveOnDate(activity, day.dateStr);
                                         const checked = isSubCompletedOnDate(activity, sub.id, day.dateStr);
@@ -1136,7 +1187,7 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
         onMouseMove={handleDesktopMouseMove} 
         onMouseUp={handleDesktopMouseUp} 
         onMouseLeave={handleDesktopMouseUp} 
-        className="hidden sm:block overflow-x-auto overscroll-x-contain touch-pan-x [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden matrix-scroll w-full cursor-grab active:cursor-grabbing select-none"
+        className="hidden sm:block overflow-x-auto overscroll-x-contain touch-manipulation [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden matrix-scroll w-full cursor-grab active:cursor-grabbing select-none"
       >
         <table className="border-collapse text-left w-max min-w-full">
           <thead>
@@ -1144,7 +1195,7 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
               
               {/* Sticky Left Column Header */}
               <th
-                className={`sticky left-0 z-25 bg-slate-100 p-2 sm:p-2.5 border-r border-slate-200 shadow-[1px_0_0_0_#e2e8f0] select-none ${leftColClass}`}
+                className={`sticky left-0 z-25 bg-slate-100 p-2 sm:p-2.5 border-r border-slate-200 shadow-[1px_0_0_0_#e2e8f0] select-none touch-pan-y touch-vertical-zone ${leftColClass}`}
                 style={leftColStyle}
               >
                 {isCompactWidth ? (

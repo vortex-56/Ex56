@@ -122,6 +122,41 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
     }, 60);
   };
 
+  // Arrastre vertical en zonas que no se mueven de derecha a izquierda
+  const verticalIsDown = useRef(false);
+  const verticalStartY = useRef(0);
+  const verticalScrollTop = useRef(0);
+  const verticalIsDragging = useRef(false);
+
+  const handleVerticalPointerDown = (e: React.PointerEvent) => {
+    if ((e.target as HTMLElement).closest('button, input, select, textarea, a, .no-drag')) {
+      return;
+    }
+    verticalIsDown.current = true;
+    verticalIsDragging.current = false;
+    verticalStartY.current = e.clientY;
+    verticalScrollTop.current = window.scrollY;
+  };
+
+  const handleVerticalPointerMove = (e: React.PointerEvent) => {
+    if (!verticalIsDown.current) return;
+    const deltaY = e.clientY - verticalStartY.current;
+    if (Math.abs(deltaY) > 4) {
+      verticalIsDragging.current = true;
+      window.scrollTo({
+        top: verticalScrollTop.current - deltaY,
+        behavior: 'instant' as ScrollBehavior,
+      });
+    }
+  };
+
+  const handleVerticalPointerUp = () => {
+    verticalIsDown.current = false;
+    setTimeout(() => {
+      verticalIsDragging.current = false;
+    }, 60);
+  };
+
   const desktopScrollRef = useRef<HTMLDivElement>(null);
   const desktopIsDown = useRef(false);
   const desktopStartX = useRef(0);
@@ -960,12 +995,12 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
           onMouseMove={handleMobileMouseMove}
           onMouseUp={handleMobileMouseUp}
           onMouseLeave={handleMobileMouseUp}
-          className="overflow-x-auto overscroll-x-contain touch-pan-x [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden w-full select-none cursor-grab active:cursor-grabbing"
+          className="overflow-x-auto overscroll-x-contain touch-manipulation [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden w-full select-none cursor-grab active:cursor-grabbing"
         >
           <div className="min-w-max">
             
             {/* LÍNEA 2: Días Header (e.g. Lun 2 Nov, Mar 3 Nov...) */}
-            <div className="flex bg-slate-100/95 border-b border-slate-200 sticky top-0 z-20">
+            <div className="flex bg-slate-100/95 border-b border-slate-200 sticky top-0 z-20 touch-pan-x touch-horizontal-zone">
               {days.map((day) => (
                 <div
                   key={day.dateStr}
@@ -1013,7 +1048,11 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                     
                     {/* LÍNEA DE RECURSO (Sticky a la izquierda dentro del scroll horizontal para que siempre se lea al arrastrar días!) */}
                     <div 
-                      className="sticky left-0 w-[calc(100vw-24px)] max-w-[calc(100vw-24px)] bg-slate-50/95 border-b border-slate-200/80 pl-2 pr-1.5 py-1.5 flex items-center justify-between gap-1 z-10"
+                      className="sticky left-0 w-[calc(100vw-24px)] max-w-[calc(100vw-24px)] bg-slate-50/95 border-b border-slate-200/80 pl-2 pr-1.5 py-1.5 flex items-center justify-between gap-1 z-10 touch-pan-y touch-vertical-zone cursor-ns-resize"
+                      onPointerDown={handleVerticalPointerDown}
+                      onPointerMove={handleVerticalPointerMove}
+                      onPointerUp={handleVerticalPointerUp}
+                      onPointerCancel={handleVerticalPointerUp}
                     >
                       <div className="flex items-center gap-1.5 min-w-0 flex-1">
                         {/* Code pill */}
@@ -1024,7 +1063,10 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                         {/* Resource Name or Code toggle */}
                         <span 
                           className="font-bold text-slate-900 text-xs truncate min-w-0 max-w-[90px] xs:max-w-[130px] cursor-pointer hover:text-amber-800"
-                          onClick={() => onEditResource(res)}
+                          onClick={() => {
+                            if (mobileIsDragging.current || verticalIsDragging.current) return;
+                            onEditResource(res);
+                          }}
                           title={res.name}
                         >
                           {isCompactWidth ? resCode : res.name}
@@ -1063,7 +1105,10 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                             <button
                               type="button"
                               disabled={rIdx === 0}
-                              onClick={() => onMoveResource(res.id, 'up')}
+                              onClick={() => {
+                                if (mobileIsDragging.current || verticalIsDragging.current) return;
+                                onMoveResource(res.id, 'up');
+                              }}
                               className="p-1 text-slate-400 hover:text-slate-800 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
                               title="Subir de posición"
                             >
@@ -1072,7 +1117,10 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                             <button
                               type="button"
                               disabled={rIdx === filteredResources.length - 1}
-                              onClick={() => onMoveResource(res.id, 'down')}
+                              onClick={() => {
+                                if (mobileIsDragging.current || verticalIsDragging.current) return;
+                                onMoveResource(res.id, 'down');
+                              }}
                               className="p-1 text-slate-400 hover:text-slate-800 disabled:opacity-20 cursor-pointer disabled:cursor-not-allowed"
                               title="Bajar de posición"
                             >
@@ -1083,7 +1131,10 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
 
                         <button
                           type="button"
-                          onClick={() => onEditResource(res)}
+                          onClick={() => {
+                            if (mobileIsDragging.current || verticalIsDragging.current) return;
+                            onEditResource(res);
+                          }}
                           className="p-1 text-slate-400 hover:text-amber-800 rounded hover:bg-slate-200/50 cursor-pointer shrink-0"
                           title="Editar recurso"
                         >
@@ -1095,6 +1146,7 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                             <button
                               type="button"
                               onClick={() => {
+                                if (mobileIsDragging.current || verticalIsDragging.current) return;
                                 onDeleteResource(res.id);
                                 setConfirmDeleteResId(null);
                               }}
@@ -1113,7 +1165,10 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                         ) : (
                           <button
                             type="button"
-                            onClick={() => setConfirmDeleteResId(res.id)}
+                            onClick={() => {
+                              if (mobileIsDragging.current || verticalIsDragging.current) return;
+                              setConfirmDeleteResId(res.id);
+                            }}
                             className="p-1 text-slate-400 hover:text-red-600 rounded hover:bg-red-50 transition-colors cursor-pointer shrink-0"
                             title="Eliminar recurso"
                           >
@@ -1124,7 +1179,7 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                     </div>
 
                     {/* LÍNEA DE CAJAS DE DÍAS DEL RECURSO (tantas cajas como días que entran en la línea 2) */}
-                    <div className="flex bg-white h-[54px]">
+                    <div className="flex bg-white h-[54px] touch-pan-x touch-horizontal-zone">
                       {days.map((day) => (
                         <div
                           key={day.dateStr}

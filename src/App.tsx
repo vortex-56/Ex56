@@ -100,6 +100,24 @@ export default function App() {
     }
   }, []);
 
+  // Detect touch device for touch-only scrollbar hiding
+  useEffect(() => {
+    const checkTouch = () => {
+      const isTouch =
+        'ontouchstart' in window ||
+        navigator.maxTouchPoints > 0 ||
+        window.matchMedia('(pointer: coarse)').matches;
+      if (isTouch) {
+        document.documentElement.classList.add('is-touch-device');
+      } else {
+        document.documentElement.classList.remove('is-touch-device');
+      }
+    };
+    checkTouch();
+    window.addEventListener('resize', checkTouch);
+    return () => window.removeEventListener('resize', checkTouch);
+  }, []);
+
   // Compute days array
   const days: DayInfo[] = useMemo(() => {
     return getDaysBetweenDates(windowStartDate, windowEndDate);
