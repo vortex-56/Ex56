@@ -77,6 +77,7 @@ export function createNewProject(name: string): Project {
     updatedAt: now,
     groups: [],
     activities: [],
+    resources: [],
     completionLogs: {},
   };
   saveProject(newProject);
@@ -84,16 +85,17 @@ export function createNewProject(name: string): Project {
 }
 
 /**
- * Creates the sample project with the exact examples described by the user in the prompt:
- * 1. "Mañana compartir fotos": finite event from tomorrow to tomorrow.
- * 2. "Meditar": 1 box per day from tomorrow indefinitely.
- * 3. "Hacer videos": takes 3 days, indefinite, Monday to Saturday (nothing on Sunday), 2 groups of 3 boxes.
- * 4. "10 Planchas": 3 sessions, each session generates spherical round checkboxes, parent box completes when all 3 are marked.
+ * Creates the sample project with activities, past completed activity, and resources
  */
 export function createSampleProject(): Project {
   const now = new Date().toISOString();
   const today = getTodayDateString();
   const tomorrow = getTomorrowDateString();
+
+  // Date 3 days ago for demo past completed activity
+  const pastDate = new Date();
+  pastDate.setDate(pastDate.getDate() - 3);
+  const pastDateStr = pastDate.toISOString().slice(0, 10);
 
   const sample: Project = {
     id: 'proj_demo_ejemplos',
@@ -101,8 +103,10 @@ export function createSampleProject(): Project {
     createdAt: now,
     updatedAt: now,
     groups: [
-      { id: 'grp_salud', code: 'SAL', name: 'Salud', color: '#10b981' },
-      { id: 'grp_trabajo', code: 'TRB', name: 'Trabajo', color: '#6366f1' },
+      { id: 'grp_salud', code: 'SAL', name: 'Salud', color: '#10b981', type: 'activity' },
+      { id: 'grp_trabajo', code: 'TRB', name: 'Trabajo', color: '#6366f1', type: 'activity' },
+      { id: 'grp_alimentos', code: 'ALI', name: 'Alimentos', color: '#f59e0b', type: 'resource' },
+      { id: 'grp_aseo', code: 'ASE', name: 'Aseo Personal', color: '#06b6d4', type: 'resource' },
     ],
     activities: [
       {
@@ -170,11 +174,103 @@ export function createSampleProject(): Project {
         ],
         notes: '3 sesiones diarias con casillas esféricas; la casilla principal se marca al completar las 3',
       },
+      {
+        id: 'act_informe_pasado',
+        code: 'INF',
+        groupId: 'grp_trabajo',
+        name: 'Cierre de informe mensual',
+        color: '#6366f1',
+        startDate: pastDateStr,
+        hasEndDate: true,
+        endDate: pastDateStr,
+        isCompleted: true,
+        completedDate: pastDateStr,
+        scheduleType: 'finite',
+        activeDays: [0, 1, 2, 3, 4, 5, 6],
+        subActivities: [],
+        notes: 'Actividad ya completada en el pasado; visible en Historial de actividades pasadas',
+      },
+    ],
+    resources: [
+      {
+        id: 'res_desayuno',
+        code: 'DES',
+        groupId: 'grp_alimentos',
+        name: 'Desayuno',
+        hasCost: true,
+        cost: 0,
+        hasDurationStatus: false,
+        possessionStatus: 'disponible',
+        availabilityStatus: 'disponible',
+        notes: 'Gasto diario o recurrente (se anota en el día que cueste)',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'res_cena',
+        code: 'CEN',
+        groupId: 'grp_alimentos',
+        name: 'Cena',
+        hasCost: true,
+        cost: 0,
+        hasDurationStatus: false,
+        possessionStatus: 'disponible',
+        availabilityStatus: 'disponible',
+        notes: 'Gasto diario nocturno recurrente',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'res_rastrillos',
+        code: 'RAS',
+        groupId: 'grp_aseo',
+        name: 'Rastrillos de afeitar',
+        hasCost: true,
+        cost: 0,
+        hasDurationStatus: true,
+        possessionStatus: 'disponible',
+        availabilityStatus: 'disponible',
+        notes: 'Duran 15 a 20 días. Se renueva al agotarse y se anota el costo ese día',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'res_desodorante',
+        code: 'DSO',
+        groupId: 'grp_aseo',
+        name: 'Desodorante',
+        hasCost: true,
+        cost: 0,
+        hasDurationStatus: true,
+        possessionStatus: 'disponible',
+        availabilityStatus: 'por_agotar',
+        notes: 'Por agotarse; renovar pronto',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'res_ropa',
+        code: 'ROP',
+        groupId: 'grp_aseo',
+        name: 'Ropa de color',
+        hasCost: false,
+        cost: 0,
+        hasDurationStatus: true,
+        possessionStatus: 'disponible',
+        availabilityStatus: 'por_agotar',
+        notes: 'Sin costo monetario; se renueva a disponible cuando se lava la ropa',
+        createdAt: now,
+        updatedAt: now,
+      },
     ],
     completionLogs: {
-      // Mark 2 of the 3 pushup sessions done for today as an interactive preview
       [`act_planchas_sub_planchas_1_${today}`]: true,
       [`act_planchas_sub_planchas_2_${today}`]: true,
+      [`act_informe_pasado_main_${pastDateStr}`]: true,
+    },
+    resourceLogs: {
+      [`res_desayuno_${today}`]: { cost: 6.00, bought: true },
+      [`res_rastrillos_${pastDateStr}`]: { cost: 15.00, bought: true, renewed: true, state: 'conseguido' },
     },
   };
 

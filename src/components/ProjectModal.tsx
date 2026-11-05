@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Project } from '../types';
-import { FolderKanban, Plus, Trash2, ArrowRight, Sparkles, X, Clock, CheckCircle2 } from 'lucide-react';
+import { FolderKanban, Plus, Trash2, ArrowRight, Sparkles, X, Clock, CheckCircle2, Edit2, Check } from 'lucide-react';
 
 interface ProjectModalProps {
   isOpen: boolean;
@@ -9,6 +9,7 @@ interface ProjectModalProps {
   activeProjectId: string | null;
   onSelectProject: (projectId: string) => void;
   onCreateProject: (name: string) => void;
+  onRenameProject?: (projectId: string, newName: string) => void;
   onDeleteProject: (projectId: string) => void;
   onLoadSampleProject: () => void;
   isInitialOnboarding?: boolean;
@@ -21,12 +22,15 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
   activeProjectId,
   onSelectProject,
   onCreateProject,
+  onRenameProject,
   onDeleteProject,
   onLoadSampleProject,
   isInitialOnboarding = false,
 }) => {
   const [newProjectName, setNewProjectName] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
+  const [editingNameValue, setEditingNameValue] = useState('');
 
   if (!isOpen) return null;
 
@@ -143,23 +147,64 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                     >
                       {/* Línea 1: Nombre, Etiqueta Activo y Botones Borrar y Entrar en la misma línea */}
                       <div className="flex items-center justify-between gap-2 min-w-0">
-                        <div
-                          className="flex items-center gap-1.5 min-w-0 flex-1 cursor-pointer"
-                          onClick={() => {
-                            onSelectProject(proj.id);
-                            onClose();
-                          }}
-                        >
-                          <FolderKanban className={`w-4 h-4 shrink-0 ${isActive ? 'text-amber-700' : 'text-slate-400'}`} />
-                          <span className="text-sm font-semibold text-slate-900 truncate">
-                            {proj.name}
-                          </span>
-                          {isActive && (
-                            <span className="text-[10px] font-bold text-amber-950 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded-md shrink-0">
-                              Activo
+                        {editingProjectId === proj.id ? (
+                          <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                            <input
+                              type="text"
+                              value={editingNameValue}
+                              onChange={(e) => setEditingNameValue(e.target.value)}
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  if (editingNameValue.trim() && onRenameProject) {
+                                    onRenameProject(proj.id, editingNameValue.trim());
+                                  }
+                                  setEditingProjectId(null);
+                                }
+                                if (e.key === 'Escape') setEditingProjectId(null);
+                              }}
+                              className="px-2 py-1 text-xs sm:text-sm font-semibold bg-white border border-amber-400 rounded-lg text-slate-900 focus:outline-hidden w-full"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (editingNameValue.trim() && onRenameProject) {
+                                  onRenameProject(proj.id, editingNameValue.trim());
+                                }
+                                setEditingProjectId(null);
+                              }}
+                              className="p-1 bg-amber-400 text-slate-950 rounded hover:bg-amber-500 text-xs font-bold cursor-pointer shrink-0"
+                              title="Guardar nombre"
+                            >
+                              <Check className="w-3.5 h-3.5 stroke-[3]" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingProjectId(null)}
+                              className="p-1 text-slate-400 hover:text-slate-600 rounded text-xs cursor-pointer shrink-0"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <div
+                            className="flex items-center gap-1.5 min-w-0 flex-1 cursor-pointer"
+                            onClick={() => {
+                              onSelectProject(proj.id);
+                              onClose();
+                            }}
+                          >
+                            <FolderKanban className={`w-4 h-4 shrink-0 ${isActive ? 'text-amber-700' : 'text-slate-400'}`} />
+                            <span className="text-sm font-semibold text-slate-900 truncate">
+                              {proj.name}
                             </span>
-                          )}
-                        </div>
+                            {isActive && (
+                              <span className="text-[10px] font-bold text-amber-950 bg-amber-100 border border-amber-300 px-1.5 py-0.5 rounded-md shrink-0">
+                                Activo
+                              </span>
+                            )}
+                          </div>
+                        )}
 
                         {/* Botones de acción en la misma línea del nombre */}
                         <div className="flex items-center gap-1 shrink-0">
@@ -178,8 +223,22 @@ export const ProjectModal: React.FC<ProjectModalProps> = ({
                                 ✕
                               </button>
                             </div>
-                          ) : (
+                          ) : editingProjectId === proj.id ? null : (
                             <>
+                              {onRenameProject && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setEditingProjectId(proj.id);
+                                    setEditingNameValue(proj.name);
+                                  }}
+                                  className="p-1.5 text-slate-400 hover:text-amber-700 rounded-lg hover:bg-amber-50 transition-colors cursor-pointer"
+                                  title="Renombrar proyecto"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                               <button
                                 onClick={() => setConfirmDeleteId(proj.id)}
                                 className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"

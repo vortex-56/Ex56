@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Activity, ActivityGroup, ScheduleType, SubActivity } from '../types';
+import { Activity, ActivityGroup, ScheduleType, SubActivity, GroupType } from '../types';
 import { COLOR_PALETTE } from '../utils/colors';
 import { getTodayDateString, getTomorrowDateString, getClusterPresets, getActivityClusterBlocks } from '../utils/dateUtils';
 import { X, Plus, Trash2, Calendar, CheckSquare, Check, ArrowUp, ArrowDown } from 'lucide-react';
@@ -10,7 +10,7 @@ interface ActivityModalProps {
   onSave: (activity: Activity) => void;
   initialActivity?: Activity | null;
   groups: ActivityGroup[];
-  onCreateGroup: (name: string, color: string, code?: string, showBox?: boolean) => ActivityGroup;
+  onCreateGroup: (name: string, color: string, code?: string, showBox?: boolean, type?: GroupType) => ActivityGroup;
   onDeleteGroup?: (groupId: string) => void;
   onUpdateGroup?: (group: ActivityGroup) => void;
 }
@@ -48,6 +48,7 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
   const [clusterBlocks, setClusterBlocks] = useState<number[][]>([[1, 2]]);
   const [dayValue, setDayValue] = useState<number>(1);
   const [isCompleted, setIsCompleted] = useState(false);
+  const [completedDate, setCompletedDate] = useState<string>('');
   const [subActivities, setSubActivities] = useState<SubActivity[]>([]);
   const [notes, setNotes] = useState('');
 
@@ -66,6 +67,9 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
   const [confirmDeleteGroup, setConfirmDeleteGroup] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  // Filter out resource groups from activity assignment
+  const activityGroups = groups.filter(g => g.type !== 'resource');
+
   useEffect(() => {
     setSubmitError(null);
     if (initialActivity) {
@@ -82,6 +86,7 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
       setClusterBlocks(getActivityClusterBlocks(initialActivity));
       setDayValue(initialActivity.dayValue || (initialActivity.scheduleType === 'day_clusters' ? (initialActivity.clusterSize || 2) : 1));
       setIsCompleted(initialActivity.isCompleted || false);
+      setCompletedDate(initialActivity.completedDate || (initialActivity.isCompleted ? getTodayDateString() : ''));
       setSubActivities(initialActivity.subActivities ? [...initialActivity.subActivities] : []);
       setNotes(initialActivity.notes || '');
     } else {
@@ -89,7 +94,7 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
       setName('');
       setCode('');
       setColor(COLOR_PALETTE[Math.floor(Math.random() * COLOR_PALETTE.length)].hex);
-      setGroupId(groups[0]?.id || '');
+      setGroupId(activityGroups[0]?.id || '');
       setStartDate(getTodayDateString());
       setHasEndDate(false);
       setEndDate(getTomorrowDateString());
@@ -99,6 +104,7 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
       setClusterBlocks([[1, 2]]);
       setDayValue(1);
       setIsCompleted(false);
+      setCompletedDate('');
       setSubActivities([]);
       setNotes('');
     }
@@ -310,6 +316,7 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
       hasEndDate,
       endDate: hasEndDate ? (endDate || startDate) : null,
       isCompleted,
+      completedDate: isCompleted ? (completedDate || getTodayDateString()) : null,
       scheduleType,
       activeDays,
       clusterSize: scheduleType === 'day_clusters' ? clusterSize : undefined,
@@ -1045,20 +1052,28 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
           </div>
 
           {/* Row 6: Completion Status Toggle */}
-          <div className="flex flex-col gap-2 p-3.5 bg-slate-50 rounded-xl border border-slate-200">
+          <div className="flex flex-col gap-2.5 p-3.5 bg-slate-50 rounded-xl border border-slate-200">
             {/* Primera línea: Título */}
             <span className="text-xs font-semibold text-slate-900">Estado de la Actividad</span>
 
             {/* Segunda línea: Descripción */}
             <p className="text-xs text-slate-500">
-              {isCompleted ? 'Marcada como terminada / archivada.' : 'Activa en el seguimiento diario.'}
+              {isCompleted 
+                ? 'Actividad marcada como terminada. Si su fecha finalizada es de antes de hoy, se trasladará al Historial de actividades pasadas en la pestaña Registro.' 
+                : 'Actividad en curso: visible en la pestaña Guía y en el seguimiento de días.'}
             </p>
 
             {/* Siguiente línea: Botón En Curso / ✓ Terminada (icono y texto en la misma línea) */}
-            <div>
+            <div className="flex items-center gap-3 flex-wrap">
               <button
                 type="button"
-                onClick={() => setIsCompleted(!isCompleted)}
+                onClick={() => {
+                  const next = !isCompleted;
+                  setIsCompleted(next);
+                  if (next && !completedDate) {
+                    setCompletedDate(getTodayDateString());
+                  }
+                }}
                 className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-lg border transition-all cursor-pointer ${
                   isCompleted
                     ? 'bg-emerald-600 text-white border-emerald-600 shadow-2xs hover:bg-emerald-700'
@@ -1074,6 +1089,25 @@ export const ActivityModal: React.FC<ActivityModalProps> = ({
                   <span>En Curso</span>
                 )}
               </button>
+
+              {isCompleted && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-slate-600">Fecha de finalización:</span>
+                  <input
+                    type="date"
+                    value={completedDate || getTodayDateString()}
+                    onChange={(e) => setCompletedDate(e.target.value)}
+                    className="px-2.5 py-1 text-xs bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:border-amber-500 font-medium"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setCompletedDate(getTodayDateString())}
+                    className="text-[11px] text-amber-800 font-bold hover:underline cursor-pointer"
+                  >
+                    Hoy
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 

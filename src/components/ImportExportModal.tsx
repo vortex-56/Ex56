@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Project } from '../types';
 import { 
+  exportProjectToJSON,
   exportProjectToCSV, 
   exportProjectToTXT, 
   importProjectFromAnyFormat,
@@ -11,11 +12,13 @@ import {
   Upload, 
   FileText, 
   FileSpreadsheet, 
+  FileJson,
   Check, 
   AlertCircle, 
   Copy, 
   X,
-  ClipboardPaste
+  ClipboardPaste,
+  Sparkles
 } from 'lucide-react';
 
 interface ImportExportModalProps {
@@ -44,37 +47,35 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
 
   if (!isOpen) return null;
 
-  const getTimestampedFilename = (extension: 'csv' | 'txt') => {
-    const cleanName = currentProject.name
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9áéíóúñ]+/gi, '_')
-      .replace(/^_+|_+$/g, '') || 'proyecto';
-    
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    
-    return `${cleanName}_${year}-${month}-${day}_${hours}${minutes}.${extension}`;
+  // The downloaded file is explicitly named Ex56
+  const getExportFilename = (extension: 'json' | 'csv' | 'txt') => {
+    return `Ex56.${extension}`;
+  };
+
+  const handleExportJSON = () => {
+    const jsonContent = exportProjectToJSON(currentProject);
+    const filename = getExportFilename('json');
+    triggerFileDownload(filename, jsonContent, 'application/json;charset=utf-8;');
   };
 
   const handleExportCSV = () => {
     const csvContent = exportProjectToCSV(currentProject);
-    const filename = getTimestampedFilename('csv');
+    const filename = getExportFilename('csv');
     triggerFileDownload(filename, csvContent, 'text/csv;charset=utf-8;');
   };
 
   const handleExportTXT = () => {
     const txtContent = exportProjectToTXT(currentProject);
-    const filename = getTimestampedFilename('txt');
+    const filename = getExportFilename('txt');
     triggerFileDownload(filename, txtContent, 'text/plain;charset=utf-8;');
   };
 
-  const handleCopy = (type: 'csv' | 'txt') => {
-    const content = type === 'csv' ? exportProjectToCSV(currentProject) : exportProjectToTXT(currentProject);
+  const handleCopy = (type: 'json' | 'csv' | 'txt') => {
+    let content = '';
+    if (type === 'json') content = exportProjectToJSON(currentProject);
+    else if (type === 'csv') content = exportProjectToCSV(currentProject);
+    else content = exportProjectToTXT(currentProject);
+
     navigator.clipboard.writeText(content).then(() => {
       setCopiedType(type);
       setTimeout(() => setCopiedType(null), 2000);
@@ -176,33 +177,67 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
           {activeTab === 'export' ? (
             <div className="space-y-4">
               <p className="text-xs text-slate-600">
-                Selecciona el formato que prefieras para descargar el proyecto actual (<strong>{currentProject.name}</strong>) con todas sus actividades, fechas, sesiones y casillas marcadas:
+                Selecciona el formato para descargar el proyecto como <strong>Ex56</strong> con todas las actividades vigentes, <strong>historial pasado de actividades</strong>, <strong>recursos</strong> con sus estados de duración y registros de costos:
               </p>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                {/* CSV Option */}
-                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 hover:border-slate-300 transition-all flex flex-col justify-between">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {/* JSON Full Option */}
+                <div className="p-3.5 rounded-xl border-2 border-amber-400 bg-amber-50/50 hover:bg-amber-50 transition-all flex flex-col justify-between shadow-2xs">
                   <div>
-                    <div className="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center mb-2.5">
-                      <FileSpreadsheet className="w-5 h-5" />
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="w-8 h-8 rounded-lg bg-amber-200 text-amber-900 flex items-center justify-center font-black">
+                        <FileJson className="w-4.5 h-4.5" />
+                      </div>
+                      <span className="text-[10px] font-black uppercase tracking-wider bg-amber-400 text-slate-950 px-1.5 py-0.5 rounded">
+                        Recomendado
+                      </span>
                     </div>
-                    <h3 className="text-sm font-bold text-slate-900">Formato CSV (.csv)</h3>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Compatible con Excel, Google Sheets y sistemas de datos tabulares.
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-950">Ex56 Completo (.json)</h3>
+                    <p className="text-[11px] text-slate-600 mt-1 leading-tight">
+                      Copia 100% íntegra con actividades, historial pasado, recursos, estados de duración y gastos.
                     </p>
                   </div>
-                  <div className="flex gap-2 mt-4 pt-3 border-t border-slate-200/80">
+                  <div className="flex gap-1.5 mt-3 pt-2.5 border-t border-amber-200">
                     <button
-                      onClick={handleExportCSV}
-                      className="flex-1 py-1.5 px-3 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 transition-colors flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
+                      onClick={handleExportJSON}
+                      className="flex-1 py-1.5 px-2 bg-amber-400 hover:bg-amber-500 border border-amber-500/30 text-slate-950 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      <span>Descargar CSV</span>
+                      <span>Descargar Ex56.json</span>
+                    </button>
+                    <button
+                      onClick={() => handleCopy('json')}
+                      className="p-1.5 bg-white border border-amber-300 rounded-lg text-slate-700 hover:bg-amber-100 transition-colors cursor-pointer"
+                      title="Copiar contenido JSON"
+                    >
+                      {copiedType === 'json' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* CSV Option */}
+                <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 hover:border-slate-300 transition-all flex flex-col justify-between">
+                  <div>
+                    <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center mb-2">
+                      <FileSpreadsheet className="w-4.5 h-4.5" />
+                    </div>
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-900">Formato CSV (.csv)</h3>
+                    <p className="text-[11px] text-slate-500 mt-1 leading-tight">
+                      Tablas estructuradas para Excel y Google Sheets con actividades, historial y recursos.
+                    </p>
+                  </div>
+                  <div className="flex gap-1.5 mt-3 pt-2.5 border-t border-slate-200/80">
+                    <button
+                      onClick={handleExportCSV}
+                      className="flex-1 py-1.5 px-2 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 transition-colors flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Descargar Ex56.csv</span>
                     </button>
                     <button
                       onClick={() => handleCopy('csv')}
                       className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
-                      title="Copiar contenido"
+                      title="Copiar contenido CSV"
                     >
                       {copiedType === 'csv' ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
                     </button>
@@ -210,28 +245,28 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
                 </div>
 
                 {/* TXT Option */}
-                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 hover:border-slate-300 transition-all flex flex-col justify-between">
+                <div className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 hover:border-slate-300 transition-all flex flex-col justify-between">
                   <div>
-                    <div className="w-9 h-9 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center mb-2.5">
-                      <FileText className="w-5 h-5" />
+                    <div className="w-8 h-8 rounded-lg bg-sky-100 text-sky-800 flex items-center justify-center mb-2">
+                      <FileText className="w-4.5 h-4.5" />
                     </div>
-                    <h3 className="text-sm font-bold text-slate-900">Formato Texto (.txt)</h3>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Reporte legible en cualquier bloc de notas con copia íntegra de restauración.
+                    <h3 className="text-xs sm:text-sm font-bold text-slate-900">Formato Texto (.txt)</h3>
+                    <p className="text-[11px] text-slate-500 mt-1 leading-tight">
+                      Reporte legible para bloc de notas con historial, recursos y bloque de restauración.
                     </p>
                   </div>
-                  <div className="flex gap-2 mt-4 pt-3 border-t border-slate-200/80">
+                  <div className="flex gap-1.5 mt-3 pt-2.5 border-t border-slate-200/80">
                     <button
                       onClick={handleExportTXT}
-                      className="flex-1 py-1.5 px-3 bg-amber-400 hover:bg-amber-500 border border-amber-500/30 text-slate-950 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer active:scale-95"
+                      className="flex-1 py-1.5 px-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      <span>Descargar TXT</span>
+                      <span>Descargar Ex56.txt</span>
                     </button>
                     <button
                       onClick={() => handleCopy('txt')}
                       className="p-1.5 bg-white border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
-                      title="Copiar contenido"
+                      title="Copiar contenido TXT"
                     >
                       {copiedType === 'txt' ? <Check className="w-3.5 h-3.5 text-amber-800" /> : <Copy className="w-3.5 h-3.5" />}
                     </button>
@@ -239,8 +274,9 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
                 </div>
               </div>
 
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-500">
-                💡 Consejo: Puedes exportar tus proyectos al finalizar tu jornada o para compartirlos con colegas.
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-600 flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
+                <span>Todos los archivos descargados se llaman <strong>Ex56</strong> y contienen las actividades, el historial de actividades finalizadas, los recursos y sus registros de costo y disponibilidad.</span>
               </div>
             </div>
           ) : (

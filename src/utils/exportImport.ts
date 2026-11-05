@@ -1,7 +1,15 @@
-import { Project, Activity, ActivityGroup, SubActivity } from '../types';
+import { Project, Activity, ActivityGroup, SubActivity, Resource, DailyResourceLog } from '../types';
 
 /**
- * Generates a clean, comprehensive CSV export representation of the project.
+ * Generates raw JSON export string representing the entire project losslessly.
+ */
+export function exportProjectToJSON(project: Project): string {
+  return JSON.stringify(project, null, 2);
+}
+
+/**
+ * Generates a clean, comprehensive CSV export representation of the project,
+ * including all active activities, completed past activities, groups, resources, and logs.
  */
 export function exportProjectToCSV(project: Project): string {
   const lines: string[] = [];
@@ -16,15 +24,22 @@ export function exportProjectToCSV(project: Project): string {
 
   // Groups block
   lines.push('# GROUPS');
-  lines.push('GroupId,GroupCode,GroupName,Color,ShowBox');
+  lines.push('GroupId,GroupCode,GroupName,Color,ShowBox,Type');
   for (const g of project.groups) {
-    lines.push(`${escapeCSV(g.id)},${escapeCSV(g.code || '')},${escapeCSV(g.name)},${escapeCSV(g.color)},${g.showBox ? '1' : '0'}`);
+    lines.push([
+      escapeCSV(g.id),
+      escapeCSV(g.code || ''),
+      escapeCSV(g.name),
+      escapeCSV(g.color),
+      g.showBox ? '1' : '0',
+      escapeCSV(g.type || 'activity'),
+    ].join(','));
   }
   lines.push('');
 
-  // Activities block
+  // Activities block (includes active and past completed activities)
   lines.push('# ACTIVITIES');
-  lines.push('ActivityId,ActivityCode,GroupId,Name,Color,StartDate,HasEndDate,EndDate,IsCompleted,ScheduleType,ActiveDays,BlockSize,ClusterSize,DayValue,SubActivitiesJson');
+  lines.push('ActivityId,ActivityCode,GroupId,Name,Color,StartDate,HasEndDate,EndDate,IsCompleted,CompletedDate,ScheduleType,ActiveDays,BlockSize,ClusterSize,DayValue,SubActivitiesJson');
   for (const a of project.activities) {
     const subJson = JSON.stringify(a.subActivities);
     const activeDaysStr = a.activeDays.join(';');
@@ -38,12 +53,38 @@ export function exportProjectToCSV(project: Project): string {
       a.hasEndDate ? '1' : '0',
       escapeCSV(a.endDate || ''),
       a.isCompleted ? '1' : '0',
+      escapeCSV(a.completedDate || ''),
       escapeCSV(a.scheduleType),
       escapeCSV(activeDaysStr),
-      a.blockSize || '',
-      a.clusterSize || '',
-      a.dayValue || '',
+      a.blockSize !== undefined ? a.blockSize.toString() : '',
+      a.clusterSize !== undefined ? a.clusterSize.toString() : '',
+      a.dayValue !== undefined ? a.dayValue.toString() : '',
       escapeCSV(subJson),
+    ].join(','));
+  }
+  lines.push('');
+
+  // Resources block
+  lines.push('# RESOURCES');
+  lines.push('ResourceId,ResourceCode,GroupId,Name,HasCost,Cost,HasDurationStatus,LastRenewedDate,PossessionStatus,AvailabilityStatus,ConsumptionType,CyclesJson,Notes,ResourceNature,Order');
+  for (const r of (project.resources || [])) {
+    const cyclesJson = JSON.stringify(r.cycles || []);
+    lines.push([
+      escapeCSV(r.id),
+      escapeCSV(r.code || ''),
+      escapeCSV(r.groupId || ''),
+      escapeCSV(r.name),
+      r.hasCost ? '1' : '0',
+      r.cost !== undefined ? r.cost.toString() : '0',
+      r.hasDurationStatus ? '1' : '0',
+      escapeCSV(r.lastRenewedDate || ''),
+      escapeCSV(r.possessionStatus || 'se_tiene'),
+      escapeCSV(r.availabilityStatus || 'disponible'),
+      escapeCSV(r.consumptionType || 'durable_seasonal'),
+      escapeCSV(cyclesJson),
+      escapeCSV(r.notes || ''),
+      escapeCSV(r.resourceNature || 'expense'),
+      r.order !== undefined ? r.order.toString() : '',
     ].join(','));
   }
   lines.push('');
@@ -56,6 +97,20 @@ export function exportProjectToCSV(project: Project): string {
       lines.push(`${escapeCSV(key)},1`);
     }
   }
+  lines.push('');
+
+  // Daily Resource Logs block
+  lines.push('# RESOURCE_LOGS');
+  lines.push('LogKey,Cost,Bought,Renewed,State');
+  for (const [key, val] of Object.entries(project.resourceLogs || {})) {
+    lines.push([
+      escapeCSV(key),
+      val.cost !== undefined ? val.cost.toString() : '0',
+      val.bought ? '1' : '0',
+      val.renewed ? '1' : '0',
+      escapeCSV(val.state || ''),
+    ].join(','));
+  }
 
   return lines.join('\n');
 }
@@ -65,15 +120,17 @@ export function exportProjectToCSV(project: Project): string {
  */
 export function parseCSVToProject(csvText: string): Project {
   const lines = csvText.split(/\r?\n/);
-  let mode: 'meta' | 'groups' | 'activities' | 'logs' = 'meta';
+  let mode: 'meta' | 'groups' | 'activities' | 'resources' | 'logs' | 'resource_logs' = 'meta';
 
   let id = 'proj_' + Math.random().toString(36).substring(2, 9);
-  let name = 'Proyecto Importado';
+  let name = 'Proyecto Importado (Ex56)';
   let createdAt = new Date().toISOString();
   let updatedAt = new Date().toISOString();
   const groups: ActivityGroup[] = [];
   const activities: Activity[] = [];
+  const resources: Resource[] = [];
   const completionLogs: Record<string, boolean> = {};
+  const resourceLogs: Record<string, DailyResourceLog> = {};
 
   let groupsHasCode = false;
   let activitiesHasCode = false;
@@ -88,8 +145,14 @@ export function parseCSVToProject(csvText: string): Project {
     } else if (line.startsWith('# ACTIVITIES')) {
       mode = 'activities';
       continue;
+    } else if (line.startsWith('# RESOURCES')) {
+      mode = 'resources';
+      continue;
     } else if (line.startsWith('# COMPLETION_LOGS')) {
       mode = 'logs';
+      continue;
+    } else if (line.startsWith('# RESOURCE_LOGS')) {
+      mode = 'resource_logs';
       continue;
     } else if (line.startsWith('#')) {
       continue;
@@ -110,12 +173,14 @@ export function parseCSVToProject(csvText: string): Project {
       if (row.length >= 2) {
         if (groupsHasCode && row.length >= 3) {
           const showBox = row[4] !== undefined ? row[4] === '1' : false;
+          const groupType = (row[5] === 'resource' ? 'resource' : 'activity') as any;
           groups.push({
             id: row[0],
             code: row[1] || undefined,
             name: row[2] || 'Grupo',
             color: row[3] || '#6366f1',
             showBox,
+            type: groupType,
           });
         } else {
           const showBox = row[3] !== undefined ? row[3] === '1' : false;
@@ -124,6 +189,7 @@ export function parseCSVToProject(csvText: string): Project {
             name: row[1] || 'Grupo',
             color: row[2] || '#6366f1',
             showBox,
+            type: 'activity',
           });
         }
       }
@@ -149,32 +215,30 @@ export function parseCSVToProject(csvText: string): Project {
         const hasEndDate = row[5 + offset] === '1';
         const endDate = row[6 + offset] ? row[6 + offset] : null;
         const isCompleted = row[7 + offset] === '1';
-        const scheduleType = (row[8 + offset] as any) || 'daily';
-        const activeDays = row[9 + offset] ? row[9 + offset].split(';').map(Number).filter((n) => !isNaN(n)) : [0, 1, 2, 3, 4, 5, 6];
-        const blockSize = row[10 + offset] ? parseInt(row[10 + offset], 10) : undefined;
-        
-        // Find subActivities in last column if it looks like JSON array
-        let subActivities: SubActivity[] = [];
-        let clusterSize: number | undefined = undefined;
-        let dayValue: number | undefined = undefined;
 
+        // Check if CompletedDate is present in column 8 + offset
+        let completedDate: string | null = null;
+        let nextIdx = 8 + offset;
+        if (row.length > 13 + offset) {
+          completedDate = row[nextIdx] ? row[nextIdx] : null;
+          nextIdx++;
+        }
+
+        const scheduleType = (row[nextIdx] as any) || 'daily';
+        nextIdx++;
+        const activeDays = row[nextIdx] ? row[nextIdx].split(';').map(Number).filter((n) => !isNaN(n)) : [0, 1, 2, 3, 4, 5, 6];
+        nextIdx++;
+        const blockSize = row[nextIdx] ? parseInt(row[nextIdx], 10) : undefined;
+        nextIdx++;
+        const clusterSize = row[nextIdx] ? parseInt(row[nextIdx], 10) : undefined;
+        nextIdx++;
+        const dayValue = row[nextIdx] ? parseInt(row[nextIdx], 10) : undefined;
+        
+        let subActivities: SubActivity[] = [];
         const lastCol = row[row.length - 1];
         if (lastCol && lastCol.startsWith('[') && lastCol.endsWith(']')) {
           try {
             subActivities = JSON.parse(lastCol);
-          } catch {
-            subActivities = [];
-          }
-          // Check if intermediate cluster columns exist
-          if (row.length >= 13 + offset) {
-            clusterSize = row[11 + offset] ? parseInt(row[11 + offset], 10) : undefined;
-          }
-          if (row.length >= 14 + offset) {
-            dayValue = row[12 + offset] ? parseInt(row[12 + offset], 10) : undefined;
-          }
-        } else if (row[11 + offset]) {
-          try {
-            subActivities = JSON.parse(row[11 + offset]);
           } catch {
             subActivities = [];
           }
@@ -190,6 +254,7 @@ export function parseCSVToProject(csvText: string): Project {
           hasEndDate,
           endDate,
           isCompleted,
+          completedDate,
           scheduleType,
           activeDays,
           blockSize,
@@ -198,10 +263,52 @@ export function parseCSVToProject(csvText: string): Project {
           subActivities,
         });
       }
+    } else if (mode === 'resources') {
+      if (row[0] === 'ResourceId') continue; // header
+      if (row.length >= 4) {
+        let cycles: any[] = [];
+        if (row[11] && row[11].startsWith('[') && row[11].endsWith(']')) {
+          try {
+            cycles = JSON.parse(row[11]);
+          } catch {
+            cycles = [];
+          }
+        }
+
+        resources.push({
+          id: row[0],
+          code: row[1] || undefined,
+          groupId: row[2] || null,
+          name: row[3] || 'Recurso',
+          hasCost: row[4] !== '0',
+          cost: parseFloat(row[5]) || 0,
+          hasDurationStatus: row[6] === '1',
+          lastRenewedDate: row[7] || null,
+          possessionStatus: (row[8] as any) || 'se_tiene',
+          availabilityStatus: (row[9] as any) || 'disponible',
+          consumptionType: (row[10] as any) || 'durable_seasonal',
+          cycles,
+          notes: row[12] || undefined,
+          resourceNature: (row[13] as any) === 'income' ? 'income' : 'expense',
+          order: row[14] ? parseInt(row[14], 10) : undefined,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        });
+      }
     } else if (mode === 'logs') {
       if (row[0] === 'LogKey') continue; // header
       if (row.length >= 2 && row[1] === '1') {
         completionLogs[row[0]] = true;
+      }
+    } else if (mode === 'resource_logs') {
+      if (row[0] === 'LogKey') continue; // header
+      if (row.length >= 2) {
+        resourceLogs[row[0]] = {
+          cost: parseFloat(row[1]) || 0,
+          bought: row[2] === '1',
+          renewed: row[3] === '1',
+          state: (row[4] as any) || undefined,
+        };
       }
     }
   }
@@ -213,7 +320,9 @@ export function parseCSVToProject(csvText: string): Project {
     updatedAt,
     groups,
     activities,
+    resources,
     completionLogs,
+    resourceLogs,
   };
 }
 
@@ -232,8 +341,10 @@ export function exportProjectToTXT(project: Project): string {
   lines.push(`Fecha de Creación: ${project.createdAt}`);
   lines.push(`Última Actualización: ${project.updatedAt}`);
   lines.push(`Total de Actividades: ${project.activities.length}`);
+  lines.push(`Total de Recursos: ${(project.resources || []).length}`);
   lines.push(`Total de Casillas Marcadas: ${completedCount}`);
   lines.push('');
+
   lines.push('----------------------------------------------------------------');
   lines.push('GRUPOS:');
   lines.push('----------------------------------------------------------------');
@@ -241,28 +352,50 @@ export function exportProjectToTXT(project: Project): string {
     lines.push('(Sin grupos definidos)');
   } else {
     for (const g of project.groups) {
-      lines.push(`- [${g.name}] (Color: ${g.color})`);
+      lines.push(`- [${g.code || 'GRP'}] ${g.name} (Tipo: ${g.type || 'activity'}, Color: ${g.color})`);
     }
   }
   lines.push('');
+
   lines.push('----------------------------------------------------------------');
-  lines.push('ACTIVIDADES Y DETALLES:');
+  lines.push('ACTIVIDADES VIGENTES:');
   lines.push('----------------------------------------------------------------');
-  for (const act of project.activities) {
+  const activeActs = project.activities.filter(a => !a.isCompleted);
+  for (const act of activeActs) {
     const group = project.groups.find(g => g.id === act.groupId);
     const groupName = group ? `[${group.name}] ` : '';
     const endStr = act.hasEndDate && act.endDate ? `hasta ${act.endDate}` : 'Indefinido';
-    lines.push(`* ${groupName}${act.name}`);
-    lines.push(`  - Inicio: ${act.startDate} | Fin: ${endStr}`);
-    lines.push(`  - Tipo: ${act.scheduleType} | Color: ${act.color}`);
-    if (act.subActivities.length > 0) {
-      lines.push(`  - Sub-actividades (${act.subActivities.length}):`);
-      for (const sub of act.subActivities) {
-        lines.push(`     • ${sub.name}`);
-      }
+    lines.push(`* ${groupName}${act.name} (Inicio: ${act.startDate} | Fin: ${endStr})`);
+  }
+  lines.push('');
+
+  lines.push('----------------------------------------------------------------');
+  lines.push('HISTORIAL DE ACTIVIDADES PASADAS (FINALIZADAS):');
+  lines.push('----------------------------------------------------------------');
+  const finishedActs = project.activities.filter(a => a.isCompleted);
+  if (finishedActs.length === 0) {
+    lines.push('(No hay actividades finalizadas en el historial)');
+  } else {
+    for (const act of finishedActs) {
+      lines.push(`✓ [FINALIZADA] ${act.name} (Finalizada el: ${act.completedDate || act.endDate || 'Registrada'})`);
     }
   }
   lines.push('');
+
+  lines.push('----------------------------------------------------------------');
+  lines.push('RECURSOS REGISTRADOS (EX56):');
+  lines.push('----------------------------------------------------------------');
+  if (!project.resources || project.resources.length === 0) {
+    lines.push('(Sin recursos registrados)');
+  } else {
+    for (const r of project.resources) {
+      const durationStr = r.hasDurationStatus ? 'Con estado de duración' : 'Gasto recurrente/frecuente';
+      const costStr = r.hasCost ? `S/. ${r.cost.toFixed(2)}` : 'Sin precio';
+      lines.push(`• [${r.code || 'REC'}] ${r.name} - ${costStr} (${durationStr}, Estado: ${r.availabilityStatus || 'disponible'})`);
+    }
+  }
+  lines.push('');
+
   lines.push('================================================================');
   lines.push('DATOS COMPLETOS DEL SISTEMA PARA RE-IMPORTAR (NO MODIFICAR ABAJO):');
   lines.push('=== PLANMATRIX_RAW_DATA_START ===');
@@ -289,7 +422,7 @@ export function importProjectFromAnyFormat(rawText: string): Project {
     try {
       const jsonStr = text.split(startMarker)[1].split(endMarker)[0].trim();
       const parsed = JSON.parse(jsonStr);
-      if (parsed && (parsed.activities || parsed.name)) {
+      if (parsed && (parsed.activities || parsed.name || parsed.resources)) {
         return sanitizeProjectData(parsed);
       }
     } catch (err) {
@@ -301,7 +434,7 @@ export function importProjectFromAnyFormat(rawText: string): Project {
   if (text.startsWith('{') && text.endsWith('}')) {
     try {
       const direct = JSON.parse(text);
-      if (direct && (direct.activities !== undefined || direct.name !== undefined)) {
+      if (direct && (direct.activities !== undefined || direct.name !== undefined || direct.resources !== undefined)) {
         return sanitizeProjectData(direct);
       }
     } catch (err) {
@@ -310,7 +443,7 @@ export function importProjectFromAnyFormat(rawText: string): Project {
   }
 
   // 3. Try CSV parsing
-  if (text.includes('# PLANMATRIX') || text.includes('ProjectId') || text.includes('# ACTIVITIES') || text.includes('ActivityId')) {
+  if (text.includes('# EX56') || text.includes('# PLANMATRIX') || text.includes('ProjectId') || text.includes('# ACTIVITIES') || text.includes('ActivityId') || text.includes('# RESOURCES')) {
     try {
       return parseCSVToProject(text);
     } catch (err: any) {
@@ -322,14 +455,14 @@ export function importProjectFromAnyFormat(rawText: string): Project {
   try {
     return parseCSVToProject(text);
   } catch {
-    throw new Error('No se pudo reconocer el formato del archivo. Asegúrate de importar un archivo .csv o .txt generado por PlanMatrix.');
+    throw new Error('No se pudo reconocer el formato del archivo. Asegúrate de importar un archivo .json, .csv o .txt generado por Ex56.');
   }
 }
 
 function sanitizeProjectData(data: any): Project {
   return {
     id: data.id || 'proj_' + Math.random().toString(36).substring(2, 9),
-    name: data.name || 'Proyecto Importado',
+    name: data.name || 'Proyecto Importado (Ex56)',
     createdAt: data.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     groups: Array.isArray(data.groups) ? data.groups.map((g: any) => ({
@@ -338,6 +471,7 @@ function sanitizeProjectData(data: any): Project {
       name: g.name || 'Grupo',
       color: g.color || '#6366f1',
       showBox: !!g.showBox,
+      type: g.type || 'activity',
     })) : [],
     activities: Array.isArray(data.activities) ? data.activities.map((a: any) => ({
       id: a.id || 'act_' + Math.random().toString(36).substring(2, 9),
@@ -349,11 +483,13 @@ function sanitizeProjectData(data: any): Project {
       hasEndDate: !!a.hasEndDate,
       endDate: a.endDate || null,
       isCompleted: !!a.isCompleted,
+      completedDate: a.completedDate || null,
       scheduleType: a.scheduleType || 'daily',
       activeDays: Array.isArray(a.activeDays) ? a.activeDays : [0, 1, 2, 3, 4, 5, 6],
       blockSize: a.blockSize,
       clusterSize: a.clusterSize,
       dayValue: a.dayValue,
+      clusterBlocks: Array.isArray(a.clusterBlocks) ? a.clusterBlocks : undefined,
       subActivities: Array.isArray(a.subActivities) ? a.subActivities.map((s: any, idx: number) => ({
         id: s.id || 'sub_' + Math.random().toString(36).substring(2, 9),
         code: s.code,
@@ -362,7 +498,28 @@ function sanitizeProjectData(data: any): Project {
       })) : [],
       notes: a.notes,
     })) : [],
+    resources: Array.isArray(data.resources) ? data.resources.map((r: any) => ({
+      id: r.id || 'res_' + Math.random().toString(36).substring(2, 9),
+      code: r.code,
+      groupId: r.groupId || null,
+      name: r.name || 'Recurso',
+      hasCost: r.hasCost !== undefined ? !!r.hasCost : true,
+      cost: Number(r.cost) || 0,
+      hasDurationStatus: r.hasDurationStatus !== undefined ? !!r.hasDurationStatus : false,
+      lastRenewedDate: r.lastRenewedDate || null,
+      possessionStatus: r.possessionStatus || 'se_tiene',
+      availabilityStatus: r.availabilityStatus || 'disponible',
+      consumptionType: r.consumptionType || 'durable_seasonal',
+      cycles: Array.isArray(r.cycles) ? r.cycles : [],
+      notes: r.notes,
+      resourceNature: r.resourceNature === 'income' ? 'income' : 'expense',
+      order: r.order !== undefined ? Number(r.order) : undefined,
+      createdAt: r.createdAt || new Date().toISOString(),
+      updatedAt: r.updatedAt || new Date().toISOString(),
+    })) : [],
     completionLogs: typeof data.completionLogs === 'object' && data.completionLogs !== null ? data.completionLogs : {},
+    resourceLogs: typeof data.resourceLogs === 'object' && data.resourceLogs !== null ? data.resourceLogs : {},
+    dailyMissionsCustomIds: Array.isArray(data.dailyMissionsCustomIds) ? data.dailyMissionsCustomIds : undefined,
   };
 }
 

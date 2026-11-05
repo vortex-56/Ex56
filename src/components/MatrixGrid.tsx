@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Activity, ActivityGroup, DayInfo, SubActivity, GroupViewState } from '../types';
-import { isActivityActiveOnDate, getClusterDatesForDate } from '../utils/dateUtils';
+import { isActivityActiveOnDate, getClusterDatesForDate, getTodayDateString } from '../utils/dateUtils';
 import { 
   ChevronDown, 
   ChevronRight, 
@@ -13,7 +13,9 @@ import {
   CalendarDays,
   Maximize2,
   Minimize2,
-  Activity as ActivityIcon
+  Activity as ActivityIcon,
+  Plus,
+  Layers
 } from 'lucide-react';
 import { ActivityAnalyzer } from './ActivityAnalyzer';
 
@@ -173,14 +175,84 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
     ? 'w-[48px] min-w-[48px] max-w-[48px] sm:w-[80px] sm:min-w-[80px] sm:max-w-[80px]'
     : '';
 
+  // Drag to scroll for calendar without ugly scrollbars
+  const mobileScrollRef = useRef<HTMLDivElement>(null);
+  const mobileIsDown = useRef(false);
+  const mobileStartX = useRef(0);
+  const mobileScrollLeft = useRef(0);
+  const mobileIsDragging = useRef(false);
+
+  const handleMobileMouseDown = (e: React.MouseEvent) => {
+    const el = mobileScrollRef.current;
+    if (!el) return;
+    mobileIsDown.current = true;
+    mobileIsDragging.current = false;
+    mobileStartX.current = e.pageX - el.offsetLeft;
+    mobileScrollLeft.current = el.scrollLeft;
+  };
+
+  const handleMobileMouseMove = (e: React.MouseEvent) => {
+    if (!mobileIsDown.current) return;
+    const el = mobileScrollRef.current;
+    if (!el) return;
+    const x = e.pageX - el.offsetLeft;
+    const walk = (x - mobileStartX.current) * 1.25;
+    if (Math.abs(walk) > 4) {
+      mobileIsDragging.current = true;
+    }
+    el.scrollLeft = mobileScrollLeft.current - walk;
+  };
+
+  const handleMobileMouseUp = () => {
+    mobileIsDown.current = false;
+    setTimeout(() => {
+      mobileIsDragging.current = false;
+    }, 60);
+  };
+
+  const desktopScrollRef = useRef<HTMLDivElement>(null);
+  const desktopIsDown = useRef(false);
+  const desktopStartX = useRef(0);
+  const desktopScrollLeft = useRef(0);
+  const desktopIsDragging = useRef(false);
+
+  const handleDesktopMouseDown = (e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('.cursor-col-resize')) return;
+    const el = desktopScrollRef.current;
+    if (!el) return;
+    desktopIsDown.current = true;
+    desktopIsDragging.current = false;
+    desktopStartX.current = e.pageX - el.offsetLeft;
+    desktopScrollLeft.current = el.scrollLeft;
+  };
+
+  const handleDesktopMouseMove = (e: React.MouseEvent) => {
+    if (!desktopIsDown.current) return;
+    const el = desktopScrollRef.current;
+    if (!el) return;
+    const x = e.pageX - el.offsetLeft;
+    const walk = (x - desktopStartX.current) * 1.25;
+    if (Math.abs(walk) > 4) {
+      desktopIsDragging.current = true;
+    }
+    el.scrollLeft = desktopScrollLeft.current - walk;
+  };
+
+  const handleDesktopMouseUp = () => {
+    desktopIsDown.current = false;
+    setTimeout(() => {
+      desktopIsDragging.current = false;
+    }, 60);
+  };
+
   // 3-state posture cycle:
-  // Estado 1 (derecha): 'collapsed_group' -> oculta todas las actividades
+  // Estado 1 (derecha): 'collapsed_group' -> oculta todas las actividades (POR DEFECTO)
   // Estado 2 (abajo): 'collapsed_subactivities' -> muestra actividades con subactividades ocultas
   // Estado 3 (arriba): 'expanded_all' -> muestra actividades y todas sus subactividades
   const cycleGroupPosture = (groupId: string, groupActivityIds: string[]) => {
     setGroupPostures(prev => {
-      const current = prev[groupId] || 'expanded_all';
-      let next: GroupViewState = 'expanded_all';
+      const current = prev[groupId] || 'collapsed_group';
+      let next: GroupViewState = 'collapsed_subactivities';
       if (current === 'collapsed_group') {
         next = 'collapsed_subactivities'; // derecha -> abajo
       } else if (current === 'collapsed_subactivities') {
@@ -213,9 +285,20 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
     });
   };
 
-  // Filter activities
+  // Only activity-type groups are displayed in MatrixGrid
+  const activityGroups = useMemo(() => {
+    return groups.filter(g => g.type !== 'resource');
+  }, [groups]);
+
+  // Filter activities: excludes activities finalized before today (they move to Historial de actividades pasadas)
   const filteredActivities = useMemo(() => {
+    const todayStr = getTodayDateString();
     return activities.filter((act) => {
+      // Actividades finalizadas antes de hoy van al historial en Registro
+      if (act.isCompleted) {
+        const compDate = act.completedDate || act.endDate || act.startDate;
+        if (compDate && compDate < todayStr) return false;
+      }
       if (activeFilterGroup && act.groupId !== activeFilterGroup) return false;
       if (searchQuery.trim() && !act.name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
       return true;
@@ -226,7 +309,7 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
   const groupedData = useMemo(() => {
     const map = new Map<string, { group: ActivityGroup | null; items: Activity[] }>();
 
-    for (const g of groups) {
+    for (const g of activityGroups) {
       map.set(g.id, { group: g, items: [] });
     }
     map.set('__ungrouped__', { group: null, items: [] });
@@ -240,7 +323,7 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
     }
 
     return Array.from(map.values()).filter(entry => entry.items.length > 0 || (entry.group && !activeFilterGroup));
-  }, [filteredActivities, groups, activeFilterGroup]);
+  }, [filteredActivities, activityGroups, activeFilterGroup]);
 
   // Helper codes
   const getActivityCode = (act: Activity, idx: number) => {
@@ -423,8 +506,8 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
               onChange={(e) => onSetFilterGroup(e.target.value === '' ? null : e.target.value)}
               className="text-xs sm:text-sm bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 sm:py-2 text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 w-full sm:w-auto truncate font-medium"
             >
-              <option value="">Todos los grupos ({activities.length})</option>
-              {groups.map((g) => (
+              <option value="">Todos los grupos ({filteredActivities.length})</option>
+              {activityGroups.map((g) => (
                 <option key={g.id} value={g.id}>
                   {g.code ? `[${g.code}] ` : ''}{g.name}
                 </option>
@@ -508,8 +591,466 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
         />
       )}
 
-      {/* Matrix Table with sticky left column and sticky dates header */}
-      <div className="overflow-x-auto matrix-scroll w-full">
+      {/* MOBILE RESPONSIVE STRUCTURE: Interleaved Groups, Activities & Subactivities with Contained Days Scrolling (block sm:hidden) */}
+      <div className="block sm:hidden w-full bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden mb-2">
+        {/* LÍNEA 1: Controles Header Bar en Mobile */}
+        <div className="p-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5">
+            <span className="font-extrabold text-slate-900 text-sm">
+              Actividades
+            </span>
+            <span className="text-[11px] font-mono text-slate-500 font-bold bg-amber-100/80 px-1.5 py-0.2 rounded-full border border-amber-300">
+              {filteredActivities.length}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            {/* Toggle all groups collapsed/expanded */}
+            <button
+              type="button"
+              onClick={() => {
+                const allCollapsed = activityGroups.every(g => (groupPostures[g.id] || 'collapsed_group') === 'collapsed_group');
+                const nextState: GroupViewState = allCollapsed ? 'collapsed_subactivities' : 'collapsed_group';
+                const nextPostures: Record<string, GroupViewState> = {};
+                for (const g of activityGroups) {
+                  nextPostures[g.id] = nextState;
+                }
+                setGroupPostures(nextPostures);
+              }}
+              className="px-2 py-1 rounded text-xs font-bold flex items-center gap-1 border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 transition-colors shadow-2xs cursor-pointer"
+              title="Plegar o desplegar todos los grupos"
+            >
+              <Layers className="w-3.5 h-3.5 text-slate-500" />
+              <span>Grupos</span>
+            </button>
+
+            {/* Analizar button */}
+            <button
+              type="button"
+              onClick={() => setIsAnalyzerOpen(prev => !prev)}
+              className={`px-2 py-1 rounded text-xs font-bold flex items-center gap-1 border transition-colors cursor-pointer shadow-2xs ${
+                isAnalyzerOpen
+                  ? 'bg-amber-400 text-slate-950 border-amber-500 shadow-xs'
+                  : 'bg-white text-slate-700 border-slate-200 hover:bg-amber-50'
+              }`}
+            >
+              <ActivityIcon className="w-3.5 h-3.5 text-amber-600" />
+              <span>Analizar</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Contained Horizontal Scroll Area for Days (No external horizontal scroll on mobile!) */}
+        <div 
+          ref={mobileScrollRef}
+          onMouseDown={handleMobileMouseDown}
+          onMouseMove={handleMobileMouseMove}
+          onMouseUp={handleMobileMouseUp}
+          onMouseLeave={handleMobileMouseUp}
+          className="overflow-x-auto overscroll-x-contain touch-pan-x [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden w-full select-none cursor-grab active:cursor-grabbing"
+        >
+          <div className="min-w-max">
+            {/* LÍNEA 2: Días Header (e.g. Lun 2 Nov, Mar 3 Nov...) */}
+            <div className="flex bg-slate-100/95 border-b border-slate-200 sticky top-0 z-20">
+              {days.map((day) => (
+                <div
+                  key={day.dateStr}
+                  className={`w-[66px] min-w-[66px] max-w-[66px] py-2 px-1 text-center border-r border-slate-200 shrink-0 ${
+                    day.isToday ? 'bg-amber-200/90 font-black text-amber-950 border-x-2 border-amber-400' : ''
+                  } ${day.isWeekend && !day.isToday ? 'bg-slate-100/80' : ''}`}
+                >
+                  <div className="flex flex-col items-center">
+                    <span className={`text-[9px] uppercase tracking-wider ${
+                      day.isToday ? 'text-amber-950 font-black' : 'text-slate-500 font-semibold'
+                    }`}>
+                      {day.dayName.slice(0, 3)}
+                    </span>
+                    <span className={`text-xs my-0.5 leading-none ${
+                      day.isToday 
+                        ? 'w-5 h-5 rounded-full bg-amber-400 text-slate-950 flex items-center justify-center font-extrabold shadow-xs text-[11px]' 
+                        : 'font-bold text-slate-800'
+                    }`}>
+                      {day.dayNumber}
+                    </span>
+                    <span className={`text-[9px] font-medium leading-none ${
+                      day.isToday ? 'text-amber-900 font-bold' : 'text-slate-400'
+                    }`}>
+                      {day.monthName.slice(0, 3)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* GRUPOS Y ACTIVIDADES: Por cada grupo: Línea de Nombre y Línea de Boxes del grupo */}
+            {groupedData.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 text-xs">
+                No hay actividades registradas todavía.
+              </div>
+            ) : (
+              groupedData.map((entry, groupIdx) => {
+                const group = entry.group;
+                const groupId = group ? group.id : '__ungrouped__';
+                const posture = groupPostures[groupId] || 'collapsed_group';
+                const isGroupFullyCollapsed = posture === 'collapsed_group';
+                const groupCode = group ? getGroupCode(group, groupIdx) : 'GEN';
+                const groupRowBg = group ? `${group.color}22` : '#f8fafc';
+                const groupStats = getGroupStats(entry.items);
+
+                return (
+                  <div key={groupId} className="border-b border-slate-200 last:border-b-0">
+                    
+                    {/* LÍNEA DE GRUPO (Sticky a la izquierda dentro del scroll horizontal) */}
+                    {group && (
+                      <div 
+                        className="sticky left-0 w-screen max-w-[calc(100vw-20px)] border-b border-slate-200/90 px-2.5 py-1.5 flex items-center justify-between gap-1 z-10 transition-colors"
+                        style={{ backgroundColor: groupRowBg }}
+                      >
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            if (mobileIsDragging.current) {
+                              e.stopPropagation();
+                              return;
+                            }
+                            cycleGroupPosture(groupId, entry.items.map(a => a.id));
+                          }}
+                          className="flex items-center gap-1.5 min-w-0 flex-1 text-left cursor-pointer"
+                          title="Alternar postura (Plegado -> Actividades -> Con subactividades)"
+                        >
+                          {/* 3-State Icon */}
+                          {posture === 'collapsed_group' && (
+                            <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
+                          )}
+                          {posture === 'collapsed_subactivities' && (
+                            <ChevronDown className="w-4 h-4 text-slate-700 shrink-0 stroke-[2.5]" />
+                          )}
+                          {posture === 'expanded_all' && (
+                            <ChevronUp className="w-4 h-4 text-amber-700 shrink-0 stroke-[2.5]" />
+                          )}
+
+                          <span 
+                            className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded text-white shrink-0 shadow-2xs"
+                            style={{ backgroundColor: group.color }}
+                          >
+                            {groupCode}
+                          </span>
+                          <span className="text-xs uppercase tracking-wider truncate font-bold text-slate-900 flex-1 min-w-0">
+                            {group.name}
+                          </span>
+                          <span className="text-[11px] font-bold text-slate-700 shrink-0">
+                            ({groupStats.totalActivities}A)
+                          </span>
+                          <span 
+                            className="text-[11px] font-bold text-amber-950 bg-amber-200/90 border border-amber-300/80 px-1 py-0.2 rounded shrink-0 shadow-2xs"
+                            title={`Actividades realizadas: ${groupStats.totalCompletions}`}
+                          >
+                            ({groupStats.totalCompletions})
+                          </span>
+                        </button>
+
+                        {/* Edit group button */}
+                        {onEditGroup && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              if (mobileIsDragging.current) return;
+                              onEditGroup(group);
+                            }}
+                            className="p-1 text-slate-500 hover:text-amber-800 rounded hover:bg-slate-200/50 cursor-pointer shrink-0"
+                            title="Editar grupo"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* LÍNEA DE BOXES DE DÍAS DEL GRUPO */}
+                    {group && (
+                      <div className="flex bg-white h-[46px]" style={{ backgroundColor: `${group.color}0d` }}>
+                        {days.map((day) => {
+                          const dayStatus = getGroupDayStatus(entry.items, day.dateStr);
+
+                          return (
+                            <div
+                              key={day.dateStr}
+                              className={`w-[66px] min-w-[66px] max-w-[66px] h-[46px] p-1 border-r border-slate-100 flex items-center justify-center shrink-0 ${
+                                day.isToday ? 'bg-amber-100/50' : ''
+                              }`}
+                            >
+                              {group.showBox && dayStatus.hasActs ? (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    if (mobileIsDragging.current) {
+                                      e.stopPropagation();
+                                      return;
+                                    }
+                                    if (onToggleGroupDay) onToggleGroupDay(group, day.dateStr);
+                                  }}
+                                  className={`w-6 h-6 rounded-md border-2 transition-all flex items-center justify-center cursor-pointer ${
+                                    dayStatus.isCompleted
+                                      ? 'text-white border-transparent shadow-xs'
+                                      : dayStatus.count > 0
+                                      ? 'border-amber-500 bg-amber-100 text-amber-950 text-xs font-bold'
+                                      : 'border-slate-300 bg-white hover:border-slate-400'
+                                  }`}
+                                  style={
+                                    dayStatus.isCompleted
+                                      ? { backgroundColor: group.color, borderColor: group.color }
+                                      : undefined
+                                  }
+                                  title={`Grupo ${group.name} en ${day.dateStr}: ${dayStatus.count}/${dayStatus.total} completadas`}
+                                >
+                                  {dayStatus.isCompleted ? (
+                                    <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                                  ) : dayStatus.count > 0 ? (
+                                    <span className="font-bold text-[10px] tabular-nums">
+                                      {dayStatus.count}
+                                    </span>
+                                  ) : null}
+                                </button>
+                              ) : (
+                                <span className="text-slate-300 select-none text-xs">—</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* ACTIVIDADES DENTRO DEL GRUPO (Ocultas si posture === 'collapsed_group') */}
+                    {!isGroupFullyCollapsed &&
+                      entry.items.map((activity, actIdx) => {
+                        const actCode = getActivityCode(activity, actIdx);
+                        const hasSubActivities = activity.subActivities.length > 0;
+                        const isExpanded = individualExpandedSubs[activity.id] !== undefined
+                          ? individualExpandedSubs[activity.id]
+                          : posture === 'expanded_all';
+
+                        return (
+                          <div key={activity.id} className="border-t border-slate-200/60">
+                            
+                            {/* LÍNEA DE ACTIVIDAD (Sticky a la izquierda) */}
+                            <div className="sticky left-0 w-screen max-w-[calc(100vw-20px)] bg-slate-50/95 border-b border-slate-200/70 px-2.5 py-1.5 flex items-center justify-between gap-1 z-10">
+                              <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                                {hasSubActivities ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      if (mobileIsDragging.current) return;
+                                      toggleSubActivityExpand(activity.id, posture);
+                                    }}
+                                    className="p-0.5 text-slate-500 hover:text-amber-800 transition-colors shrink-0 cursor-pointer"
+                                    title={isExpanded ? 'Ocultar sesiones' : 'Mostrar sesiones'}
+                                  >
+                                    {isExpanded ? (
+                                      <ChevronDown className="w-3.5 h-3.5 text-slate-700" />
+                                    ) : (
+                                      <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
+                                    )}
+                                  </button>
+                                ) : (
+                                  <div className="w-2 shrink-0" />
+                                )}
+
+                                <span 
+                                  className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-800 shrink-0 shadow-2xs"
+                                >
+                                  {actCode}
+                                </span>
+
+                                <div
+                                  className="w-2.5 h-2.5 rounded-sm shrink-0"
+                                  style={{ backgroundColor: activity.color }}
+                                />
+
+                                <span 
+                                  className={`text-xs font-bold truncate cursor-pointer hover:text-amber-800 ${
+                                    activity.isCompleted ? 'line-through text-slate-400' : 'text-slate-900'
+                                  }`}
+                                  onClick={(e) => {
+                                    if (mobileIsDragging.current) return;
+                                    onEditActivity(activity);
+                                  }}
+                                  title={activity.name}
+                                >
+                                  {activity.name}
+                                </span>
+
+                                {hasSubActivities && (
+                                  <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1 py-0.2 rounded shrink-0">
+                                    {activity.subActivities.length} ses.
+                                  </span>
+                                )}
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  if (mobileIsDragging.current) return;
+                                  onEditActivity(activity);
+                                }}
+                                className="p-1 text-slate-400 hover:text-amber-800 rounded hover:bg-slate-200/50 cursor-pointer shrink-0"
+                                title="Editar actividad"
+                              >
+                                <Edit2 className="w-3 h-3" />
+                              </button>
+                            </div>
+
+                            {/* LÍNEA DE BOXES DE DÍAS DE LA ACTIVIDAD */}
+                            <div className="flex bg-white h-[46px]">
+                              {days.map((day) => {
+                                const isActive = isActivityActiveOnDate(activity, day.dateStr);
+                                const status = getParentDayStatus(activity, day.dateStr);
+
+                                return (
+                                  <div
+                                    key={day.dateStr}
+                                    className={`w-[66px] min-w-[66px] max-w-[66px] h-[46px] p-1 border-r border-slate-100 flex items-center justify-center shrink-0 ${
+                                      day.isToday ? 'bg-amber-50/40' : ''
+                                    }`}
+                                  >
+                                    {isActive ? (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          if (mobileIsDragging.current) {
+                                            e.stopPropagation();
+                                            return;
+                                          }
+                                          if (status.hasSub) {
+                                            onToggleParentDay(activity, day.dateStr);
+                                          } else {
+                                            onToggleCell(activity.id, null, day.dateStr);
+                                          }
+                                        }}
+                                        className={`w-6 h-6 rounded-md border-2 transition-all flex items-center justify-center cursor-pointer ${
+                                          status.isCompleted
+                                            ? 'text-white border-transparent shadow-xs'
+                                            : status.hasSub && status.completedCount > 0
+                                            ? 'border-amber-400 bg-amber-100 text-amber-950 text-xs font-bold'
+                                            : 'border-slate-300 bg-white hover:border-slate-400 hover:bg-slate-50'
+                                        }`}
+                                        style={
+                                          status.isCompleted
+                                            ? { backgroundColor: activity.color, borderColor: activity.color }
+                                            : undefined
+                                        }
+                                        title={
+                                          status.hasSub
+                                            ? `${status.completedCount}/${status.totalCount} sesiones completadas.`
+                                            : status.isCompleted
+                                            ? 'Completado'
+                                            : 'Pendiente'
+                                        }
+                                      >
+                                        {status.isCompleted ? (
+                                          <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                                        ) : status.hasSub && status.completedCount > 0 ? (
+                                          <span className="tabular-nums font-bold leading-none text-xs">
+                                            {status.completedCount}
+                                          </span>
+                                        ) : null}
+                                      </button>
+                                    ) : (
+                                      <span className="text-slate-300 select-none text-xs">—</span>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {/* SUBACTIVIDADES (Visibles si posture === 'expanded_all' o toggle individual) */}
+                            {hasSubActivities &&
+                              isExpanded &&
+                              activity.subActivities.map((sub, subIdx) => {
+                                const subCode = getSubCode(sub, actCode, subIdx);
+
+                                return (
+                                  <div key={sub.id} className="border-t border-slate-100">
+                                    {/* LÍNEA DE SUBACTIVIDAD (Sticky a la izquierda) */}
+                                    <div className="sticky left-0 w-screen max-w-[calc(100vw-20px)] bg-slate-100/90 border-b border-slate-200/60 px-3 py-1 flex items-center gap-1.5 z-10 pl-6">
+                                      <span className="text-[10px] font-mono font-bold px-1 py-0.2 rounded bg-white text-slate-700 border border-slate-200 shrink-0">
+                                        {subCode}
+                                      </span>
+                                      <div className="w-1.5 h-1.5 rounded-full bg-slate-400 shrink-0" />
+                                      <span className="text-xs font-medium text-slate-700 truncate" title={sub.name}>
+                                        {sub.name}
+                                      </span>
+                                    </div>
+
+                                    {/* LÍNEA DE BOXES DE DÍAS DE LA SUBACTIVIDAD */}
+                                    <div className="flex bg-slate-50/50 h-[42px]">
+                                      {days.map((day) => {
+                                        const isActive = isActivityActiveOnDate(activity, day.dateStr);
+                                        const checked = isSubCompletedOnDate(activity, sub.id, day.dateStr);
+
+                                        return (
+                                          <div
+                                            key={day.dateStr}
+                                            className={`w-[66px] min-w-[66px] max-w-[66px] h-[42px] p-1 border-r border-slate-100 flex items-center justify-center shrink-0 ${
+                                              day.isToday ? 'bg-amber-50/40' : ''
+                                            }`}
+                                          >
+                                            {isActive ? (
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  if (mobileIsDragging.current) {
+                                                    e.stopPropagation();
+                                                    return;
+                                                  }
+                                                  onToggleCell(activity.id, sub.id, day.dateStr);
+                                                }}
+                                                className={`w-5.5 h-5.5 rounded-full border-2 transition-all flex items-center justify-center cursor-pointer ${
+                                                  checked
+                                                    ? 'text-white border-transparent shadow-xs'
+                                                    : 'border-slate-300 bg-white hover:border-slate-400'
+                                                }`}
+                                                style={
+                                                  checked
+                                                    ? { backgroundColor: activity.color, borderColor: activity.color }
+                                                    : undefined
+                                                }
+                                                title={`${subCode}: ${checked ? 'Completada' : 'Pendiente'}`}
+                                              >
+                                                {checked && <Check className="w-3 h-3 stroke-[3]" />}
+                                              </button>
+                                            ) : (
+                                              <span className="text-slate-300 select-none text-[10px]">—</span>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+
+                          </div>
+                        );
+                      })}
+
+                  </div>
+                );
+              })
+            )}
+
+          </div>
+        </div>
+      </div>
+
+      {/* DESKTOP TABLE VIEW (hidden on mobile, visible on sm and up) */}
+      <div 
+        ref={desktopScrollRef} 
+        onMouseDown={handleDesktopMouseDown} 
+        onMouseMove={handleDesktopMouseMove} 
+        onMouseUp={handleDesktopMouseUp} 
+        onMouseLeave={handleDesktopMouseUp} 
+        className="hidden sm:block overflow-x-auto overscroll-x-contain touch-pan-x [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden matrix-scroll w-full cursor-grab active:cursor-grabbing select-none"
+      >
         <table className="border-collapse text-left w-max min-w-full">
           <thead>
             <tr className="bg-slate-100/95 border-b border-slate-200 text-xs sm:text-sm font-semibold text-slate-700 sticky top-0 z-20">
@@ -612,7 +1153,7 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
             {groupedData.map((entry, groupIdx) => {
               const group = entry.group;
               const groupId = group ? group.id : '__ungrouped__';
-              const posture = groupPostures[groupId] || 'expanded_all';
+              const posture = groupPostures[groupId] || 'collapsed_group';
               const isGroupFullyCollapsed = posture === 'collapsed_group';
               const isSubActivitiesCollapsed = posture === 'collapsed_subactivities';
               const groupCode = group ? getGroupCode(group, groupIdx) : 'GEN';
