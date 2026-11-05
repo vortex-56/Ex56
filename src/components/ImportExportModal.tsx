@@ -5,7 +5,8 @@ import {
   exportProjectToCSV, 
   exportProjectToTXT, 
   importProjectFromAnyFormat,
-  triggerFileDownload 
+  triggerFileDownload,
+  getExportFilename
 } from '../utils/exportImport';
 import { 
   Download, 
@@ -46,11 +47,6 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
-
-  // The downloaded file is explicitly named Ex56
-  const getExportFilename = (extension: 'json' | 'csv' | 'txt') => {
-    return `Ex56.${extension}`;
-  };
 
   const handleExportJSON = () => {
     const jsonContent = exportProjectToJSON(currentProject);
@@ -203,7 +199,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
                       className="flex-1 py-1.5 px-2 bg-amber-400 hover:bg-amber-500 border border-amber-500/30 text-slate-950 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      <span>Descargar Ex56.json</span>
+                      <span>Descargar JSON (.json)</span>
                     </button>
                     <button
                       onClick={() => handleCopy('json')}
@@ -232,7 +228,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
                       className="flex-1 py-1.5 px-2 bg-emerald-600 text-white text-xs font-semibold rounded-lg hover:bg-emerald-700 transition-colors flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      <span>Descargar Ex56.csv</span>
+                      <span>Descargar CSV (.csv)</span>
                     </button>
                     <button
                       onClick={() => handleCopy('csv')}
@@ -261,7 +257,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
                       className="flex-1 py-1.5 px-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1 shadow-2xs cursor-pointer active:scale-95"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      <span>Descargar Ex56.txt</span>
+                      <span>Descargar TXT (.txt)</span>
                     </button>
                     <button
                       onClick={() => handleCopy('txt')}
@@ -274,9 +270,9 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
                 </div>
               </div>
 
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-600 flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-amber-500 shrink-0" />
-                <span>Todos los archivos descargados se llaman <strong>Ex56</strong> y contienen las actividades, el historial de actividades finalizadas, los recursos y sus registros de costo y disponibilidad.</span>
+              <div className="p-3 bg-amber-50/90 rounded-xl border border-amber-300/80 text-xs text-amber-950 flex items-center gap-2.5 shadow-2xs">
+                <Sparkles className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>Cada archivo se descarga con su <strong>fecha y hora exacta</strong> (ej. <strong>Ex56_2026-11-04_16-35-12.json</strong>) para identificar siempre la copia más reciente.</span>
               </div>
             </div>
           ) : (

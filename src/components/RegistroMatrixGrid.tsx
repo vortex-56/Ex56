@@ -73,6 +73,7 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
   const [editingCostCell, setEditingCostCell] = useState<{ id: string; date: string } | null>(null);
   const [tempCostValue, setTempCostValue] = useState<string>('');
   const [isCompactWidth, setIsCompactWidth] = useState(false);
+  const [confirmDeleteResId, setConfirmDeleteResId] = useState<string | null>(null);
 
   // Duration action popover state
   const [activeDurationPopover, setActiveDurationPopover] = useState<{
@@ -1012,7 +1013,7 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                     
                     {/* LÍNEA DE RECURSO (Sticky a la izquierda dentro del scroll horizontal para que siempre se lea al arrastrar días!) */}
                     <div 
-                      className="sticky left-0 w-screen max-w-[calc(100vw-24px)] bg-slate-50/95 border-b border-slate-200/80 px-2.5 py-1.5 flex items-center justify-between gap-1 z-10"
+                      className="sticky left-0 w-[calc(100vw-24px)] max-w-[calc(100vw-24px)] bg-slate-50/95 border-b border-slate-200/80 pl-2 pr-1.5 py-1.5 flex items-center justify-between gap-1 z-10"
                     >
                       <div className="flex items-center gap-1.5 min-w-0 flex-1">
                         {/* Code pill */}
@@ -1022,7 +1023,7 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
 
                         {/* Resource Name or Code toggle */}
                         <span 
-                          className="font-bold text-slate-900 text-xs truncate cursor-pointer hover:text-amber-800"
+                          className="font-bold text-slate-900 text-xs truncate min-w-0 max-w-[90px] xs:max-w-[130px] cursor-pointer hover:text-amber-800"
                           onClick={() => onEditResource(res)}
                           title={res.name}
                         >
@@ -1055,7 +1056,7 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                         />
                       </div>
 
-                      {/* Right controls: Move Up/Down, Edit */}
+                      {/* Right controls: Move Up/Down, Edit, Delete */}
                       <div className="flex items-center gap-0.5 shrink-0">
                         {onMoveResource && (
                           <div className="flex items-center">
@@ -1083,11 +1084,42 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                         <button
                           type="button"
                           onClick={() => onEditResource(res)}
-                          className="p-1 text-slate-400 hover:text-amber-800 rounded hover:bg-slate-200/50 cursor-pointer"
+                          className="p-1 text-slate-400 hover:text-amber-800 rounded hover:bg-slate-200/50 cursor-pointer shrink-0"
                           title="Editar recurso"
                         >
-                          <Edit2 className="w-3 h-3" />
+                          <Edit2 className="w-3.5 h-3.5" />
                         </button>
+
+                        {confirmDeleteResId === res.id ? (
+                          <div className="flex items-center gap-0.5 bg-red-50 p-0.5 rounded border border-red-200 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onDeleteResource(res.id);
+                                setConfirmDeleteResId(null);
+                              }}
+                              className="px-1.5 py-0.5 text-[10px] font-bold text-red-700 hover:bg-red-100 rounded cursor-pointer"
+                            >
+                              Borrar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteResId(null)}
+                              className="px-1 py-0.5 text-[10px] text-slate-500 hover:text-slate-700 cursor-pointer"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteResId(res.id)}
+                            className="p-1 text-slate-400 hover:text-red-600 rounded hover:bg-red-50 transition-colors cursor-pointer shrink-0"
+                            title="Eliminar recurso"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -1116,7 +1148,7 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                 
                 {/* Fila 1: Gastos pagados */}
                 <div>
-                  <div className="sticky left-0 w-screen max-w-[calc(100vw-24px)] bg-slate-100/95 px-2.5 py-1 text-[11px] font-bold text-slate-800 flex items-center justify-between z-10">
+                  <div className="sticky left-0 w-[calc(100vw-24px)] max-w-[calc(100vw-24px)] bg-slate-100/95 px-2.5 py-1 text-[11px] font-bold text-slate-800 flex items-center justify-between z-10">
                     <span className="flex items-center gap-1"><Receipt className="w-3 h-3 text-slate-500" /> Gastos pagados</span>
                     <span className="text-[10px] text-slate-500 font-mono">Comprado</span>
                   </div>
@@ -1134,7 +1166,7 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
 
                 {/* Fila 2: Falta pagar */}
                 <div>
-                  <div className="sticky left-0 w-screen max-w-[calc(100vw-24px)] bg-amber-50/95 px-2.5 py-1 text-[11px] font-bold text-amber-950 flex items-center justify-between z-10">
+                  <div className="sticky left-0 w-[calc(100vw-24px)] max-w-[calc(100vw-24px)] bg-amber-50/95 px-2.5 py-1 text-[11px] font-bold text-amber-950 flex items-center justify-between z-10">
                     <span className="flex items-center gap-1"><Clock className="w-3 h-3 text-amber-700" /> Falta pagar</span>
                     <span className="text-[10px] text-amber-700 font-mono">Pendiente</span>
                   </div>
@@ -1152,7 +1184,7 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
 
                 {/* Fila 3: Ganancias cobradas */}
                 <div>
-                  <div className="sticky left-0 w-screen max-w-[calc(100vw-24px)] bg-emerald-50/95 px-2.5 py-1 text-[11px] font-bold text-emerald-950 flex items-center justify-between z-10">
+                  <div className="sticky left-0 w-[calc(100vw-24px)] max-w-[calc(100vw-24px)] bg-emerald-50/95 px-2.5 py-1 text-[11px] font-bold text-emerald-950 flex items-center justify-between z-10">
                     <span className="flex items-center gap-1"><TrendingUp className="w-3 h-3 text-emerald-700" /> Ganancias cobradas</span>
                     <span className="text-[10px] text-emerald-700 font-mono font-bold">Ganado</span>
                   </div>
@@ -1170,7 +1202,7 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
 
                 {/* Fila 4: Servicios por cobrar */}
                 <div>
-                  <div className="sticky left-0 w-screen max-w-[calc(100vw-24px)] bg-cyan-50/95 px-2.5 py-1 text-[11px] font-bold text-cyan-950 flex items-center justify-between z-10">
+                  <div className="sticky left-0 w-[calc(100vw-24px)] max-w-[calc(100vw-24px)] bg-cyan-50/95 px-2.5 py-1 text-[11px] font-bold text-cyan-950 flex items-center justify-between z-10">
                     <span className="flex items-center gap-1"><Coins className="w-3 h-3 text-cyan-700" /> Por cobrar</span>
                     <span className="text-[10px] text-cyan-700 font-mono">Recompensa</span>
                   </div>
@@ -1188,7 +1220,7 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
 
                 {/* Fila 5: Balance neto */}
                 <div>
-                  <div className="sticky left-0 w-screen max-w-[calc(100vw-24px)] bg-slate-200/95 px-2.5 py-1 text-[11px] font-black text-slate-900 flex items-center justify-between z-10">
+                  <div className="sticky left-0 w-[calc(100vw-24px)] max-w-[calc(100vw-24px)] bg-slate-200/95 px-2.5 py-1 text-[11px] font-black text-slate-900 flex items-center justify-between z-10">
                     <span className="flex items-center gap-1"><DollarSign className="w-3 h-3 text-slate-700" /> Balance neto</span>
                     <span className="text-[10px] text-slate-600 font-bold">Ganado - Gastado</span>
                   </div>

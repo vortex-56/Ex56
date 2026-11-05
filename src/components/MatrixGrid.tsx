@@ -102,6 +102,7 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
   // Column width mode: true = Solo Códigos; false = Extendido con nombres
   const [isCompactWidth, setIsCompactWidth] = useState(false);
   const [confirmDeleteGroupId, setConfirmDeleteGroupId] = useState<string | null>(null);
+  const [confirmDeleteActivityId, setConfirmDeleteActivityId] = useState<string | null>(null);
 
   // User-resizable column width in expanded mode
   const [expandedWidth, setExpandedWidth] = useState<number>(() => {
@@ -703,9 +704,10 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
                     {/* LÍNEA DE GRUPO (Sticky a la izquierda dentro del scroll horizontal) */}
                     {group && (
                       <div 
-                        className="sticky left-0 w-screen max-w-[calc(100vw-20px)] border-b border-slate-200/90 px-2.5 py-1.5 flex items-center justify-between gap-1 z-10 transition-colors"
+                        className="sticky left-0 w-[calc(100vw-24px)] max-w-[calc(100vw-24px)] border-b border-slate-200/90 pl-2 pr-1.5 py-1.5 flex items-center justify-between gap-1 z-10 transition-colors"
                         style={{ backgroundColor: groupRowBg }}
                       >
+                        {/* Left: Group 3-state posture button & name */}
                         <button
                           type="button"
                           onClick={(e) => {
@@ -715,7 +717,7 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
                             }
                             cycleGroupPosture(groupId, entry.items.map(a => a.id));
                           }}
-                          className="flex items-center gap-1.5 min-w-0 flex-1 text-left cursor-pointer"
+                          className="flex items-center gap-1.5 min-w-0 flex-1 text-left cursor-pointer mr-1"
                           title="Alternar postura (Plegado -> Actividades -> Con subactividades)"
                         >
                           {/* 3-State Icon */}
@@ -735,9 +737,13 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
                           >
                             {groupCode}
                           </span>
-                          <span className="text-xs uppercase tracking-wider truncate font-bold text-slate-900 flex-1 min-w-0">
+                          <span className="text-xs uppercase tracking-wider truncate font-bold text-slate-900 min-w-0 max-w-[85px] xs:max-w-[125px]">
                             {group.name}
                           </span>
+                        </button>
+
+                        {/* Right: (xA) (x) el lapiz y el tacho todos visibles dentro del limite */}
+                        <div className="flex items-center gap-1 shrink-0">
                           <span className="text-[11px] font-bold text-slate-700 shrink-0">
                             ({groupStats.totalActivities}A)
                           </span>
@@ -747,22 +753,63 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
                           >
                             ({groupStats.totalCompletions})
                           </span>
-                        </button>
 
-                        {/* Edit group button */}
-                        {onEditGroup && (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              if (mobileIsDragging.current) return;
-                              onEditGroup(group);
-                            }}
-                            className="p-1 text-slate-500 hover:text-amber-800 rounded hover:bg-slate-200/50 cursor-pointer shrink-0"
-                            title="Editar grupo"
-                          >
-                            <Edit2 className="w-3 h-3" />
-                          </button>
-                        )}
+                          {/* Edit group button (Lápiz) */}
+                          {onEditGroup && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                if (mobileIsDragging.current) return;
+                                onEditGroup(group);
+                              }}
+                              className="p-1 text-slate-500 hover:text-amber-800 rounded hover:bg-slate-200/50 cursor-pointer shrink-0"
+                              title="Editar grupo"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
+                          {/* Delete group button (Tacho) */}
+                          {confirmDeleteGroupId === group.id ? (
+                            <div className="flex items-center gap-0.5 bg-red-50 p-0.5 rounded border border-red-200 shrink-0">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  if (mobileIsDragging.current) return;
+                                  if (onDeleteGroup) onDeleteGroup(group.id);
+                                  setConfirmDeleteGroupId(null);
+                                }}
+                                className="px-1.5 py-0.5 text-[10px] font-bold text-red-700 hover:bg-red-100 rounded cursor-pointer"
+                              >
+                                Borrar
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setConfirmDeleteGroupId(null);
+                                }}
+                                className="px-1 py-0.5 text-[10px] text-slate-500 hover:text-slate-700 cursor-pointer"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ) : (
+                            onDeleteGroup && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  if (mobileIsDragging.current) return;
+                                  setConfirmDeleteGroupId(group.id);
+                                }}
+                                className="p-1 text-slate-400 hover:text-red-600 rounded hover:bg-red-50 transition-colors cursor-pointer shrink-0"
+                                title="Eliminar grupo"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )
+                          )}
+                        </div>
                       </div>
                     )}
 
@@ -833,7 +880,7 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
                           <div key={activity.id} className="border-t border-slate-200/60">
                             
                             {/* LÍNEA DE ACTIVIDAD (Sticky a la izquierda) */}
-                            <div className="sticky left-0 w-screen max-w-[calc(100vw-20px)] bg-slate-50/95 border-b border-slate-200/70 px-2.5 py-1.5 flex items-center justify-between gap-1 z-10">
+                            <div className="sticky left-0 w-[calc(100vw-24px)] max-w-[calc(100vw-24px)] bg-slate-50/95 border-b border-slate-200/70 pl-2 pr-1.5 py-1.5 flex items-center justify-between gap-1 z-10">
                               <div className="flex items-center gap-1.5 min-w-0 flex-1">
                                 {hasSubActivities ? (
                                   <button
@@ -867,7 +914,7 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
                                 />
 
                                 <span 
-                                  className={`text-xs font-bold truncate cursor-pointer hover:text-amber-800 ${
+                                  className={`text-xs font-bold truncate min-w-0 max-w-[110px] xs:max-w-[160px] cursor-pointer hover:text-amber-800 ${
                                     activity.isCompleted ? 'line-through text-slate-400' : 'text-slate-900'
                                   }`}
                                   onClick={(e) => {
@@ -886,17 +933,57 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
                                 )}
                               </div>
 
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  if (mobileIsDragging.current) return;
-                                  onEditActivity(activity);
-                                }}
-                                className="p-1 text-slate-400 hover:text-amber-800 rounded hover:bg-slate-200/50 cursor-pointer shrink-0"
-                                title="Editar actividad"
-                              >
-                                <Edit2 className="w-3 h-3" />
-                              </button>
+                              <div className="flex items-center gap-0.5 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    if (mobileIsDragging.current) return;
+                                    onEditActivity(activity);
+                                  }}
+                                  className="p-1 text-slate-400 hover:text-amber-800 rounded hover:bg-slate-200/50 cursor-pointer shrink-0"
+                                  title="Editar actividad"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+
+                                {confirmDeleteActivityId === activity.id ? (
+                                  <div className="flex items-center gap-0.5 bg-red-50 p-0.5 rounded border border-red-200 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        if (mobileIsDragging.current) return;
+                                        onDeleteActivity(activity.id);
+                                        setConfirmDeleteActivityId(null);
+                                      }}
+                                      className="px-1.5 py-0.5 text-[10px] font-bold text-red-700 hover:bg-red-100 rounded cursor-pointer"
+                                    >
+                                      Borrar
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setConfirmDeleteActivityId(null);
+                                      }}
+                                      className="px-1 py-0.5 text-[10px] text-slate-500 hover:text-slate-700 cursor-pointer"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      if (mobileIsDragging.current) return;
+                                      setConfirmDeleteActivityId(activity.id);
+                                    }}
+                                    className="p-1 text-slate-400 hover:text-red-600 rounded hover:bg-red-50 transition-colors cursor-pointer shrink-0"
+                                    title="Eliminar actividad"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
                             </div>
 
                             {/* LÍNEA DE BOXES DE DÍAS DE LA ACTIVIDAD */}
@@ -971,7 +1058,7 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
                                 return (
                                   <div key={sub.id} className="border-t border-slate-100">
                                     {/* LÍNEA DE SUBACTIVIDAD (Sticky a la izquierda) */}
-                                    <div className="sticky left-0 w-screen max-w-[calc(100vw-20px)] bg-slate-100/90 border-b border-slate-200/60 px-3 py-1 flex items-center gap-1.5 z-10 pl-6">
+                                    <div className="sticky left-0 w-[calc(100vw-24px)] max-w-[calc(100vw-24px)] bg-slate-100/90 border-b border-slate-200/60 pl-6 pr-2 py-1 flex items-center gap-1.5 z-10">
                                       <span className="text-[10px] font-mono font-bold px-1 py-0.2 rounded bg-white text-slate-700 border border-slate-200 shrink-0">
                                         {subCode}
                                       </span>
