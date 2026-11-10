@@ -78,6 +78,7 @@ export function createNewProject(name: string): Project {
     groups: [],
     activities: [],
     resources: [],
+    ideas: [],
     completionLogs: {},
   };
   saveProject(newProject);
@@ -272,6 +273,65 @@ export function createSampleProject(): Project {
       [`res_desayuno_${today}`]: { cost: 6.00, bought: true },
       [`res_rastrillos_${pastDateStr}`]: { cost: 15.00, bought: true, renewed: true, state: 'conseguido' },
     },
+    ideas: [
+      {
+        id: 'idea_info_1',
+        title: 'Información',
+        boxColor: '#FFFFFF',
+        order: 0,
+        collapsed: false,
+        createdAt: now,
+        updatedAt: now,
+        phrases: [
+          {
+            id: 'phr_1',
+            text: 'Resumen ejecutivo del sistema Ex56 y control de hábitos',
+            fontSize: 'lg',
+            color: '#1e3a8a',
+            fontWeight: 'bold',
+          },
+          {
+            id: 'phr_2',
+            text: 'En Registro se calcula automáticamente el gasto, ganancias y balance del periodo visible.',
+            fontSize: 'base',
+            color: '#047857',
+            fontWeight: 'semibold',
+          },
+          {
+            id: 'phr_3',
+            text: 'Las cajas de ideas se ajustan automáticamente a la cantidad de texto en su interior.',
+            fontSize: 'sm',
+            color: '#475569',
+            fontWeight: 'normal',
+          },
+        ],
+      },
+      {
+        id: 'idea_ideas_2',
+        title: 'Estrategias y Mejoras',
+        boxColor: '#FEF9C3',
+        order: 1,
+        collapsed: false,
+        createdAt: now,
+        updatedAt: now,
+        phrases: [
+          {
+            id: 'phr_4',
+            text: 'Priorizar recursos esenciales al inicio de cada mes',
+            fontSize: 'base',
+            color: '#b45309',
+            fontWeight: 'bold',
+          },
+          {
+            id: 'phr_5',
+            text: 'Mantener un balance positivo reduciendo gastos no indispensables.',
+            fontSize: 'sm',
+            color: '#1e293b',
+            fontWeight: 'medium',
+          },
+        ],
+      },
+    ],
   };
 
   saveProject(sample);

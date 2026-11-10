@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Project, Activity, ActivityGroup, DayInfo, SubActivity, Resource, GroupType, ResourceAvailability, DayResourceState, ResourcePossession } from './types';
+import { Project, Activity, ActivityGroup, DayInfo, SubActivity, Resource, GroupType, ResourceAvailability, DayResourceState, ResourcePossession, Idea } from './types';
 import { 
   getStoredProjects, 
   saveProject, 
@@ -32,12 +32,25 @@ import { HistoryActivitiesBox } from './components/HistoryActivitiesBox';
 import { ResourcesBox } from './components/ResourcesBox';
 import { ResourceModal } from './components/ResourceModal';
 import { RegistroMatrixGrid } from './components/RegistroMatrixGrid';
+import { IdeasBox } from './components/IdeasBox';
 import { 
   CheckCircle2, 
   Flame,
   LayoutGrid,
-  ClipboardList
+  ClipboardList,
+  Lightbulb,
+  Sparkles
 } from 'lucide-react';
+import { Session, User } from '@supabase/supabase-js';
+import { supabase } from './lib/supabaseClient';
+import { LoginScreen } from './components/LoginScreen';
+import { 
+  loadUserProjectsFromSupabase, 
+  insertProjectIntoSupabase, 
+  updateProjectInSupabase, 
+  deleteProjectFromSupabase,
+  importProjectFromTXTToSupabase
+} from './lib/supabaseProjects';
 
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -45,8 +58,8 @@ export default function App() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState<boolean>(false);
   const [saveToast, setSaveToast] = useState<string | null>(null);
 
-  // Active Main Tab: 'guia' (Matriz de Actividades) | 'registro' (Recursos e Historial)
-  const [activeTab, setActiveTab] = useState<'guia' | 'registro'>('guia');
+  // Active Main Tab: 'guia' (Naranja) | 'registro' (Azul) | 'ideas' (Verde)
+  const [activeTab, setActiveTab] = useState<'guia' | 'registro' | 'ideas'>('guia');
 
   // Undo and Redo history stacks (stores previous and future project state snapshots)
   const [undoStack, setUndoStack] = useState<Project[]>([]);
@@ -82,8 +95,21 @@ export default function App() {
   const [selectedActivityIds, setSelectedActivityIds] = useState<string[]>([]);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
 
-  // 1. Initial Load from LocalStorage
-  useEffect(() => {
+  // Supabase Auth and User state
+  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
+  const [isLoadingProjects, setIsLoadingProjects] = useState<boolean>(false);
+
+  // Guest Mode state (persisted so page refreshes in guest mode stay in dashboard)
+  const [isGuest, setIsGuest] = useState<boolean>(() => {
+    return localStorage.getItem('ex56_is_guest') === 'true';
+  });
+
+  // Handler to enter Guest Mode
+  const handleEnterAsGuest = useCallback(() => {
+    setIsGuest(true);
+    localStorage.setItem('ex56_is_guest', 'true');
     const stored = getStoredProjects();
     if (stored.length > 0) {
       setProjects(stored);
@@ -92,13 +118,156 @@ export default function App() {
       setCurrentProject(found);
       setActiveProjectId(found.id);
     } else {
-      // First time entrance: load sample project with real interactive examples
       const sample = createSampleProject();
       setProjects([sample]);
       setCurrentProject(sample);
       setActiveProjectId(sample.id);
     }
+    setSaveToast('Has ingresado en Modo Invitado (guardado local)');
+    setTimeout(() => setSaveToast(null), 2500);
   }, []);
+
+  // Handler to exit Guest Mode
+  const handleExitGuest = useCallback(() => {
+    setIsGuest(false);
+    localStorage.removeItem('ex56_is_guest');
+  }, []);
+
+  // Handler to initiate Google OAuth from Guest Banner
+  const handleConnectWithGoogle = useCallback(async () => {
+    try {
+      await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.origin,
+        },
+      });
+    } catch (err: any) {
+      console.error('Error al conectar con Google:', err);
+    }
+  }, []);
+
+  // 1. Initial Session Check & Listen to Auth State Changes
+  useEffect(() => {
+    let isMounted = true;
+
+    // Check existing active session
+    supabase.auth.getSession().then(({ data: { session: initialSession }, error }) => {
+      if (!isMounted) return;
+      if (error) {
+        console.error('Error al verificar sesión de Supabase:', error);
+      }
+      setSession(initialSession);
+      setUser(initialSession?.user ?? null);
+      setIsAuthChecking(false);
+    });
+
+    // Detect when user logs in or out with Google OAuth
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, currentSession) => {
+      if (!isMounted) return;
+      setSession(currentSession);
+      setUser(currentSession?.user ?? null);
+      setIsAuthChecking(false);
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // 2. Load projects for Guest Mode (LocalStorage only)
+  useEffect(() => {
+    if (isGuest && !user) {
+      const stored = getStoredProjects();
+      if (stored.length > 0) {
+        setProjects(stored);
+        const activeId = getActiveProjectId();
+        const found = stored.find(p => p.id === activeId) || stored[0];
+        setCurrentProject(found);
+        setActiveProjectId(found.id);
+      } else {
+        const sample = createSampleProject();
+        setProjects([sample]);
+        setCurrentProject(sample);
+        setActiveProjectId(sample.id);
+      }
+    }
+  }, [isGuest, user]);
+
+  // 3. Load Projects for Authenticated User & Auto-Migrate from Guest/LocalStorage if needed
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    let isMounted = true;
+    const fetchUserProjects = async () => {
+      setIsLoadingProjects(true);
+      try {
+        const remoteProjects = await loadUserProjectsFromSupabase(user.id);
+        if (!isMounted) return;
+
+        // If user just logged in from guest mode, clean guest flag
+        const wasGuest = localStorage.getItem('ex56_is_guest') === 'true';
+        if (wasGuest) {
+          localStorage.removeItem('ex56_is_guest');
+          setIsGuest(false);
+        }
+
+        if (remoteProjects && remoteProjects.length > 0) {
+          setProjects(remoteProjects);
+          saveProjectsToStorage(remoteProjects);
+          const activeId = getActiveProjectId();
+          const found = remoteProjects.find(p => p.id === activeId) || remoteProjects[0];
+          setCurrentProject(found);
+          setActiveProjectId(found.id);
+        } else {
+          // If no projects in Supabase yet, migrate existing local projects to Supabase
+          const localStored = getStoredProjects();
+          if (localStored.length > 0) {
+            setProjects(localStored);
+            const activeId = getActiveProjectId();
+            const found = localStored.find(p => p.id === activeId) || localStored[0];
+            setCurrentProject(found);
+            setActiveProjectId(found.id);
+            // Auto-migrate local projects to Supabase tables
+            for (const proj of localStored) {
+              await insertProjectIntoSupabase(user.id, proj).catch(e => console.warn('Supabase migration note:', e));
+            }
+            setSaveToast('¡Sesión iniciada con Google! Tus proyectos locales se han sincronizado con la nube.');
+            setTimeout(() => setSaveToast(null), 3500);
+          } else {
+            const sample = createSampleProject();
+            setProjects([sample]);
+            setCurrentProject(sample);
+            setActiveProjectId(sample.id);
+            insertProjectIntoSupabase(user.id, sample).catch(e => console.warn('Supabase initial sync:', e));
+          }
+        }
+      } catch (err) {
+        console.error('Error al cargar proyectos de Supabase:', err);
+        const localStored = getStoredProjects();
+        if (localStored.length > 0 && isMounted) {
+          setProjects(localStored);
+          const activeId = getActiveProjectId();
+          const found = localStored.find(p => p.id === activeId) || localStored[0];
+          setCurrentProject(found);
+          setActiveProjectId(found.id);
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingProjects(false);
+        }
+      }
+    };
+
+    fetchUserProjects();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user]);
 
   // Detect touch device for touch-only scrollbar hiding
   useEffect(() => {
@@ -177,21 +346,32 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleUndo, handleRedo]);
 
-  // Save current project explicitly
-  const handleSaveProject = useCallback(() => {
+  // Save current project explicitly (LocalStorage + Supabase)
+  const handleSaveProject = useCallback(async () => {
     if (!currentProject) return;
     saveProject(currentProject);
     const updatedList = getStoredProjects();
     setProjects(updatedList);
     setHasUnsavedChanges(false);
-    setSaveToast('¡Proyecto y progreso guardados con éxito!');
+
+    if (user && !isGuest) {
+      setSaveToast('Guardando en Supabase...');
+      const res = await updateProjectInSupabase(user.id, currentProject);
+      if (res.success) {
+        setSaveToast('¡Proyecto y progreso sincronizados con Supabase!');
+      } else {
+        setSaveToast('Guardado localmente');
+      }
+    } else {
+      setSaveToast('¡Proyecto y progreso guardados con éxito!');
+    }
     setTimeout(() => setSaveToast(null), 2500);
-  }, [currentProject]);
+  }, [currentProject, user, isGuest]);
 
   // Project Management Handlers
   const handleSelectProject = (projectId: string) => {
     if (hasUnsavedChanges && currentProject) {
-      saveProject(currentProject);
+      handleSaveProject();
     }
     const found = projects.find(p => p.id === projectId);
     if (found) {
@@ -205,7 +385,8 @@ export default function App() {
     }
   };
 
-  const handleCreateProject = (name: string) => {
+  // Crear Proyecto: Inserta en Supabase tabla `projects` con user_id (solo si autenticado)
+  const handleCreateProject = async (name: string) => {
     const newProj = createNewProject(name);
     const updated = getStoredProjects();
     setProjects(updated);
@@ -217,9 +398,26 @@ export default function App() {
     setUndoStack([]);
     setRedoStack([]);
     setIsProjectModalOpen(false);
+
+    // Insert into Supabase table projects with current user_id
+    if (user && !isGuest) {
+      setSaveToast('Creando en Supabase...');
+      const res = await insertProjectIntoSupabase(user.id, newProj);
+      if (res.success) {
+        setSaveToast('¡Proyecto creado y sincronizado en Supabase!');
+      } else {
+        console.warn('Proyecto guardado localmente (alerta Supabase:', res.error, ')');
+        setSaveToast('Proyecto creado (guardado localmente)');
+      }
+      setTimeout(() => setSaveToast(null), 3000);
+    } else {
+      setSaveToast('Proyecto creado (guardado localmente)');
+      setTimeout(() => setSaveToast(null), 2500);
+    }
   };
 
-  const handleDeleteProject = (projectId: string) => {
+  // Eliminar Proyecto: Elimina en LocalStorage y en Supabase (si autenticado)
+  const handleDeleteProject = async (projectId: string) => {
     deleteStoredProject(projectId);
     const updated = getStoredProjects();
     setProjects(updated);
@@ -229,6 +427,24 @@ export default function App() {
       if (!next) {
         setIsProjectModalOpen(true);
       }
+    }
+    if (user && !isGuest) {
+      await deleteProjectFromSupabase(user.id, projectId);
+    }
+  };
+
+  // Cerrar Sesión con Supabase Google Auth
+  const handleSignOut = async () => {
+    try {
+      await supabase.auth.signOut();
+      setUser(null);
+      setSession(null);
+      setIsGuest(false);
+      localStorage.removeItem('ex56_is_guest');
+      setProjects([]);
+      setCurrentProject(null);
+    } catch (err) {
+      console.error('Error al cerrar sesión:', err);
     }
   };
 
@@ -981,14 +1197,22 @@ export default function App() {
     if (!currentProject) return;
     pushUndoSnapshot();
 
+    const todayString = getTodayDateString();
     const nextActivities = currentProject.activities.map(a =>
-      selectedActivityIds.includes(a.id) ? { ...a, isCompleted: completed } : a
+      selectedActivityIds.includes(a.id)
+        ? { 
+            ...a, 
+            isCompleted: completed,
+            completedDate: completed ? (a.completedDate || todayString) : null,
+          }
+        : a
     );
     const updatedProject = { ...currentProject, activities: nextActivities, updatedAt: new Date().toISOString() };
     setCurrentProject(updatedProject);
     setSelectedActivityIds([]);
     setHasUnsavedChanges(true);
     saveProject(updatedProject);
+    setSaveToast(completed ? 'Actividades marcadas como terminadas' : 'Actividades marcadas como en curso');
   };
 
   const handleBatchDelete = () => {
@@ -1138,30 +1362,43 @@ export default function App() {
     saveProject(updatedProject);
   };
 
-  // Import Handler
-  const handleImportProject = (imported: Project, overwrite: boolean) => {
+  // Import Handler with Supabase multi-table synchronization
+  const handleImportProject = async (imported: Project, overwrite: boolean, rawTxt?: string) => {
     pushUndoSnapshot();
-    if (overwrite && currentProject) {
-      const updated = { ...imported, id: currentProject.id };
-      saveProject(updated);
-      setCurrentProject(updated);
-    } else {
-      saveProject(imported);
-      setCurrentProject(imported);
-      setActiveProjectId(imported.id);
-    }
+    const finalProject: Project = (overwrite && currentProject) 
+      ? { ...imported, id: currentProject.id, name: currentProject.name } 
+      : imported;
+
+    saveProject(finalProject);
+    setCurrentProject(finalProject);
+    setActiveProjectId(finalProject.id);
+
     const freshList = getStoredProjects();
     setProjects(freshList);
     setHasUnsavedChanges(false);
     setSelectedActivityIds([]);
-    setSaveToast('¡Proyecto importado con éxito!');
-    setTimeout(() => setSaveToast(null), 2500);
+
+    if (user && !isGuest) {
+      setSaveToast('Sincronizando con Supabase...');
+      if (rawTxt && rawTxt.includes('=== PLANMATRIX_RAW_DATA_START ===')) {
+        const res = await importProjectFromTXTToSupabase(rawTxt, user.id, finalProject.id);
+        if (res.success && res.project) {
+          saveProject(res.project);
+          setCurrentProject(res.project);
+        }
+      } else {
+        await updateProjectInSupabase(user.id, finalProject);
+      }
+      setSaveToast('¡Proyecto importado y guardado en Supabase!');
+    } else {
+      setSaveToast('¡Proyecto importado con éxito!');
+    }
+    setTimeout(() => setSaveToast(null), 3000);
   };
 
-  // Date Navigation Steppers
+  // Date Navigation Steppers: Avanza o retrocede exactamente la cantidad de días del periodo seleccionado (7, 9, 14, 30 días, etc.)
   const handlePrevDateWindow = () => {
-    const diff = Math.round((windowEndDate.getTime() - windowStartDate.getTime()) / (1000 * 60 * 60 * 24));
-    const step = Math.min(Math.max(7, diff), 14);
+    const step = days.length > 0 ? days.length : 14;
 
     setWindowStartDate(prev => {
       const n = new Date(prev);
@@ -1176,8 +1413,7 @@ export default function App() {
   };
 
   const handleNextDateWindow = () => {
-    const diff = Math.round((windowEndDate.getTime() - windowStartDate.getTime()) / (1000 * 60 * 60 * 24));
-    const step = Math.min(Math.max(7, diff), 14);
+    const step = days.length > 0 ? days.length : 14;
 
     setWindowStartDate(prev => {
       const n = new Date(prev);
@@ -1192,11 +1428,16 @@ export default function App() {
   };
 
   const handleTodayWindow = () => {
+    const periodDays = days.length > 0 ? days.length : 14;
     const today = new Date();
     const s = new Date(today);
-    s.setDate(today.getDate() - 2);
+    if (periodDays <= 7) {
+      s.setDate(today.getDate());
+    } else {
+      s.setDate(today.getDate() - 2);
+    }
     const e = new Date(s);
-    e.setDate(s.getDate() + 13);
+    e.setDate(s.getDate() + periodDays - 1);
     setWindowStartDate(s);
     setWindowEndDate(e);
   };
@@ -1204,6 +1445,92 @@ export default function App() {
   const handleApplyCustomDateRange = (newStart: Date, newEnd: Date) => {
     setWindowStartDate(newStart);
     setWindowEndDate(newEnd);
+  };
+
+  // Ideas Handlers (Crear, Editar, Eliminar, Reordenar y Plegar)
+  const handleAddIdea = (newIdeaData: Omit<Idea, 'id' | 'createdAt' | 'updatedAt'>) => {
+    if (!currentProject) return;
+    pushUndoSnapshot();
+    const now = new Date().toISOString();
+    const newIdea: Idea = {
+      ...newIdeaData,
+      id: 'idea_' + Math.random().toString(36).substring(2, 9),
+      createdAt: now,
+      updatedAt: now,
+    };
+    const updatedProject: Project = {
+      ...currentProject,
+      ideas: [...(currentProject.ideas || []), newIdea],
+      updatedAt: now,
+    };
+    setCurrentProject(updatedProject);
+    setHasUnsavedChanges(true);
+    saveProject(updatedProject);
+    setSaveToast('Idea creada con éxito');
+    setTimeout(() => setSaveToast(null), 2000);
+  };
+
+  const handleUpdateIdea = (updatedIdea: Idea) => {
+    if (!currentProject) return;
+    pushUndoSnapshot();
+    const now = new Date().toISOString();
+    const updatedProject: Project = {
+      ...currentProject,
+      ideas: (currentProject.ideas || []).map((i) =>
+        i.id === updatedIdea.id ? { ...updatedIdea, updatedAt: now } : i
+      ),
+      updatedAt: now,
+    };
+    setCurrentProject(updatedProject);
+    setHasUnsavedChanges(true);
+    saveProject(updatedProject);
+    setSaveToast('Idea actualizada');
+    setTimeout(() => setSaveToast(null), 2000);
+  };
+
+  const handleDeleteIdea = (ideaId: string) => {
+    if (!currentProject) return;
+    pushUndoSnapshot();
+    const now = new Date().toISOString();
+    const updatedProject: Project = {
+      ...currentProject,
+      ideas: (currentProject.ideas || []).filter((i) => i.id !== ideaId),
+      updatedAt: now,
+    };
+    setCurrentProject(updatedProject);
+    setHasUnsavedChanges(true);
+    saveProject(updatedProject);
+    setSaveToast('Idea eliminada');
+    setTimeout(() => setSaveToast(null), 2000);
+  };
+
+  const handleReorderIdeas = (reorderedIdeas: Idea[]) => {
+    if (!currentProject) return;
+    pushUndoSnapshot();
+    const updatedProject: Project = {
+      ...currentProject,
+      ideas: reorderedIdeas,
+      updatedAt: new Date().toISOString(),
+    };
+    setCurrentProject(updatedProject);
+    setHasUnsavedChanges(true);
+    saveProject(updatedProject);
+  };
+
+  const handleToggleIdeaCollapse = (ideaId: string) => {
+    if (!currentProject) return;
+    const updatedProject: Project = {
+      ...currentProject,
+      ideas: (currentProject.ideas || []).map((i) =>
+        i.id === ideaId ? { ...i, collapsed: !i.collapsed } : i
+      ),
+    };
+    setCurrentProject(updatedProject);
+    saveProject(updatedProject);
+  };
+
+  const handleOpenNewIdea = () => {
+    setActiveTab('ideas');
   };
 
   const handleUpdateDailyMissionsVisibility = (visibleActivityIds: string[]) => {
@@ -1271,9 +1598,44 @@ export default function App() {
     }).length;
   }, [currentProject, todayStr]);
 
+  // Auth checking loader (Tema Claro)
+  if (isAuthChecking) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center text-slate-800 font-sans">
+        <div className="w-10 h-10 border-3 border-amber-400 border-t-transparent rounded-full animate-spin mb-4" />
+        <p className="text-sm font-semibold text-slate-600">Cargando Ex56...</p>
+      </div>
+    );
+  }
+
+  // If user is not logged in AND not in guest mode: show LoginScreen
+  if (!user && !isGuest) {
+    return <LoginScreen onEnterAsGuest={handleEnterAsGuest} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans w-full max-w-full overflow-x-hidden">
       
+      {/* Banner discreto de Modo Invitado */}
+      {isGuest && !user && (
+        <div className="bg-amber-50/90 border-b border-amber-200/90 text-amber-950 px-3 sm:px-6 py-2 text-xs flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0" />
+            <span className="text-slate-800 font-medium">
+              <strong>Modo invitado:</strong> tus datos se guardan solo en este navegador.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={handleConnectWithGoogle}
+            className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-400 hover:bg-amber-500 text-slate-950 font-bold rounded-lg border border-amber-500/30 transition-all shadow-xs active:scale-95 cursor-pointer text-xs"
+          >
+            <Sparkles className="w-3.5 h-3.5 stroke-[2.5]" />
+            <span>Crear cuenta con Google para guardar en la nube</span>
+          </button>
+        </div>
+      )}
+
       {/* Toast Notification */}
       {saveToast && (
         <div className="fixed top-20 right-6 z-50 bg-emerald-600 text-white text-xs font-semibold px-4 py-2.5 rounded-lg shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-2">
@@ -1310,6 +1672,12 @@ export default function App() {
         dailyPendingCount={dailyPendingCount}
         activeTab={activeTab}
         onSelectTab={setActiveTab}
+        onOpenNewIdea={handleOpenNewIdea}
+        userEmail={user?.email}
+        userAvatar={user?.user_metadata?.avatar_url || user?.user_metadata?.picture}
+        onSignOut={handleSignOut}
+        isGuest={isGuest}
+        onExitGuest={handleExitGuest}
       />
 
       {/* Main Container */}
@@ -1329,6 +1697,8 @@ export default function App() {
                 <span aria-hidden="true">·</span>
                 <span>{currentProject.resources?.length || 0} registros</span>
                 <span aria-hidden="true">·</span>
+                <span>{currentProject.ideas?.length || 0} ideas</span>
+                <span aria-hidden="true">·</span>
                 <span>{currentProject.groups.length} grupos</span>
                 <span aria-hidden="true">·</span>
                 <span>Hoy: {formatFriendlyDate(todayStr)}</span>
@@ -1337,7 +1707,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Tab Selector: Guía | Registro */}
+        {/* Tab Selector: Guía | Registro | Ideas */}
         <div className="flex items-center gap-2 border-b border-slate-200">
           <button
             type="button"
@@ -1363,6 +1733,19 @@ export default function App() {
           >
             <ClipboardList className="w-4 h-4 text-cyan-600" />
             <span>Registro</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('ideas')}
+            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer ${
+              activeTab === 'ideas'
+                ? 'border-emerald-500 text-slate-950 font-extrabold bg-emerald-50/50 rounded-t-xl'
+                : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-t-xl'
+            }`}
+          >
+            <Lightbulb className="w-4 h-4 text-emerald-600" />
+            <span>Ideas</span>
           </button>
         </div>
 
@@ -1458,6 +1841,20 @@ export default function App() {
                 setIsActivityModalOpen(true);
               }}
               onDeleteActivity={handleDeleteActivity}
+            />
+          </div>
+        )}
+
+        {/* TAB 3: IDEAS */}
+        {activeTab === 'ideas' && currentProject && (
+          <div className="space-y-4">
+            <IdeasBox
+              ideas={currentProject.ideas || []}
+              onAddIdea={handleAddIdea}
+              onUpdateIdea={handleUpdateIdea}
+              onDeleteIdea={handleDeleteIdea}
+              onReorderIdeas={handleReorderIdeas}
+              onToggleCollapse={handleToggleIdeaCollapse}
             />
           </div>
         )}

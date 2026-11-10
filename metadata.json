@@ -1,6 +1,6 @@
 {
-  "name": "PlanMatrix",
-  "description": "Gestor visual matricial de proyectos, hábitos diarios, sub-actividades por sesiones, agrupación temática e importación/exportación.",
+  "name": "Ex56 - PlanMatrix",
+  "description": "Gestor integral de proyectos, hábitos, recursos financieros e ideas con integración en la nube y modo offline local.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

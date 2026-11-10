@@ -19,14 +19,17 @@ import {
   Copy, 
   X,
   ClipboardPaste,
-  Sparkles
+  Sparkles,
+  Clock
 } from 'lucide-react';
+
+import { exportProjectFromSupabaseToTXT } from '../lib/supabaseProjects';
 
 interface ImportExportModalProps {
   isOpen: boolean;
   onClose: () => void;
   currentProject: Project;
-  onImportProject: (importedProject: Project, overwriteCurrent: boolean) => void;
+  onImportProject: (importedProject: Project, overwriteCurrent: boolean, rawText?: string) => void;
 }
 
 export const ImportExportModal: React.FC<ImportExportModalProps> = ({
@@ -43,34 +46,58 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   const [importError, setImportError] = useState<string | null>(null);
   const [overwriteCurrent, setOverwriteCurrent] = useState(false);
   const [pastedText, setPastedText] = useState('');
+  const [rawImportText, setRawImportText] = useState('');
   const [isPastingMode, setIsPastingMode] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!isOpen) return null;
 
   const handleExportJSON = () => {
-    const jsonContent = exportProjectToJSON(currentProject);
+    const nowIso = new Date().toISOString();
+    const updated = { ...currentProject, lastDownloadedAt: nowIso };
+    onImportProject(updated, true);
+    const jsonContent = exportProjectToJSON(updated);
     const filename = getExportFilename('json');
     triggerFileDownload(filename, jsonContent, 'application/json;charset=utf-8;');
   };
 
   const handleExportCSV = () => {
-    const csvContent = exportProjectToCSV(currentProject);
+    const nowIso = new Date().toISOString();
+    const updated = { ...currentProject, lastDownloadedAt: nowIso };
+    onImportProject(updated, true);
+    const csvContent = exportProjectToCSV(updated);
     const filename = getExportFilename('csv');
     triggerFileDownload(filename, csvContent, 'text/csv;charset=utf-8;');
   };
 
-  const handleExportTXT = () => {
-    const txtContent = exportProjectToTXT(currentProject);
+  const handleExportTXT = async () => {
+    const nowIso = new Date().toISOString();
+    const updated = { ...currentProject, lastDownloadedAt: nowIso };
+    onImportProject(updated, true);
+
+    let txtContent = '';
+    try {
+      // Reconstructs TXT reading from all Supabase tables
+      txtContent = await exportProjectFromSupabaseToTXT(currentProject.id, updated);
+    } catch {
+      txtContent = exportProjectToTXT(updated);
+    }
+
     const filename = getExportFilename('txt');
     triggerFileDownload(filename, txtContent, 'text/plain;charset=utf-8;');
   };
 
-  const handleCopy = (type: 'json' | 'csv' | 'txt') => {
+  const handleCopy = async (type: 'json' | 'csv' | 'txt') => {
     let content = '';
     if (type === 'json') content = exportProjectToJSON(currentProject);
     else if (type === 'csv') content = exportProjectToCSV(currentProject);
-    else content = exportProjectToTXT(currentProject);
+    else {
+      try {
+        content = await exportProjectFromSupabaseToTXT(currentProject.id, currentProject);
+      } catch {
+        content = exportProjectToTXT(currentProject);
+      }
+    }
 
     navigator.clipboard.writeText(content).then(() => {
       setCopiedType(type);
@@ -81,8 +108,20 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   const processImportText = (text: string) => {
     setImportError(null);
     setImportedPreview(null);
+    setRawImportText(text);
     try {
       if (!text.trim()) throw new Error('El archivo o texto está vacío');
+
+      // Specifically check for PLANMATRIX_RAW_DATA_START / END
+      const startTag = '=== PLANMATRIX_RAW_DATA_START ===';
+      const endTag = '=== PLANMATRIX_RAW_DATA_END ===';
+      if (text.includes(startTag) && text.includes(endTag)) {
+        const jsonStr = text.split(startTag)[1].split(endTag)[0].trim();
+        const parsed = JSON.parse(jsonStr);
+        setImportedPreview(parsed);
+        return;
+      }
+
       const parsed = importProjectFromAnyFormat(text);
       if (!parsed.name && !parsed.id) {
         throw new Error('Estructura de proyecto no válida.');
@@ -116,7 +155,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
 
   const handleConfirmImport = () => {
     if (!importedPreview) return;
-    onImportProject(importedPreview, overwriteCurrent);
+    onImportProject(importedPreview, overwriteCurrent, rawImportText || undefined);
     onClose();
   };
 
@@ -173,8 +212,21 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
           {activeTab === 'export' ? (
             <div className="space-y-4">
               <p className="text-xs text-slate-600">
-                Selecciona el formato para descargar el proyecto como <strong>Ex56</strong> con todas las actividades vigentes, <strong>historial pasado de actividades</strong>, <strong>recursos</strong> con sus estados de duración y registros de costos:
+                Selecciona el formato para descargar el proyecto como <strong>Ex56</strong> con todas las actividades vigentes, <strong>historial pasado de actividades</strong>, <strong>recursos</strong> con sus costos, y la sección de <strong>Ideas y Notas</strong>:
               </p>
+
+              {/* Indicador de última fecha de descarga */}
+              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 flex items-center justify-between text-xs text-slate-700">
+                <span className="font-semibold flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-slate-500" />
+                  Última fecha de descarga guardada:
+                </span>
+                <span className="font-mono font-bold text-slate-900 bg-white px-2 py-0.5 rounded border border-slate-300">
+                  {currentProject.lastDownloadedAt
+                    ? (currentProject.lastDownloadedAt.includes('T') ? new Date(currentProject.lastDownloadedAt).toLocaleString('es-PE') : currentProject.lastDownloadedAt)
+                    : 'Aún no descargado'}
+                </span>
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {/* JSON Full Option */}

@@ -88,6 +88,29 @@ export interface DailyResourceLog {
   state?: DayResourceState; // explicit state set on this date: ninguno, disponible, por_terminar, conseguido
 }
 
+export type IdeaFontSize = 'xs' | 'sm' | 'base' | 'lg' | 'xl' | '2xl';
+export type IdeaFontWeight = 'normal' | 'medium' | 'semibold' | 'bold' | 'extrabold';
+
+export interface IdeaPhrase {
+  id: string;
+  text: string;
+  fontSize?: IdeaFontSize;
+  color?: string;
+  fontWeight?: IdeaFontWeight;
+}
+
+export interface Idea {
+  id: string;
+  title: string;
+  boxColor: string; // Color claro para la caja (blanco, crema, menta suave, etc.)
+  phrases: IdeaPhrase[];
+  contentHtml?: string; // Contenido enriquecido en HTML con estilos aplicados a textos seleccionados
+  order: number;
+  collapsed?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -96,12 +119,15 @@ export interface Project {
   groups: ActivityGroup[];
   activities: Activity[];
   resources?: Resource[];
+  ideas?: Idea[];
   // Map key: `${activityId}_${subActivityId || 'main'}_${dateString}` => boolean
   completionLogs: Record<string, boolean>;
   // Map key: `${resourceId}_${dateString}` => DailyResourceLog
   resourceLogs?: Record<string, DailyResourceLog>;
   // Custom chosen activity IDs for the "Misiones Diarias" daily guide
   dailyMissionsCustomIds?: string[];
+  // Timestamp de la última descarga/exportación
+  lastDownloadedAt?: string;
 }
 
 export interface DayInfo {

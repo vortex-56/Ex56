@@ -8,7 +8,8 @@ import {
   ArrowUp, 
   ArrowDown, 
   ChevronsUp, 
-  ChevronsDown 
+  ChevronsDown,
+  Clock
 } from 'lucide-react';
 
 interface MultiSelectBarProps {
@@ -161,16 +162,28 @@ export const MultiSelectBar: React.FC<MultiSelectBarProps> = ({
             )
           )}
 
-          {/* Mark Completed */}
+          {/* Cambiar estado: En curso o Terminado */}
           {onMarkSelectedCompleted && (
-            <button
-              onClick={() => onMarkSelectedCompleted(true)}
-              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-emerald-400 hover:text-emerald-300 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-              title="Marcar como terminadas"
-            >
-              <CheckCircle2 className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Terminar</span>
-            </button>
+            <div className="flex items-center gap-1 bg-slate-800/90 p-0.5 rounded-xl border border-slate-700/60 shrink-0">
+              <button
+                type="button"
+                onClick={() => onMarkSelectedCompleted(false)}
+                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold text-amber-300 hover:text-amber-200 hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
+                title="Pasar actividades seleccionadas a En curso (activas)"
+              >
+                <Clock className="w-3.5 h-3.5 text-amber-400" />
+                <span className="hidden xs:inline">En curso</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onMarkSelectedCompleted(true)}
+                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold text-emerald-400 hover:text-emerald-300 hover:bg-slate-700 rounded-lg transition-colors cursor-pointer"
+                title="Marcar actividades seleccionadas como Terminadas"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="hidden xs:inline">Terminar</span>
+              </button>
+            </div>
           )}
         </div>
       )}

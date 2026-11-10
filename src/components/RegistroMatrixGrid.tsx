@@ -478,6 +478,38 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
     return totals;
   }, [days, resources, resourceLogs]);
 
+  // Total summary of the displayed period (7, 14, 30, or custom N days)
+  const periodStats = useMemo(() => {
+    let expTotal = 0;
+    let expPaid = 0;
+    let incTotal = 0;
+    let incEarned = 0;
+
+    for (const day of days) {
+      const d = dailyTotals[day.dateStr];
+      if (d) {
+        expTotal += d.expenseTotal;
+        expPaid += d.expensePaid;
+        incTotal += d.incomeTotal;
+        incEarned += d.incomeEarned;
+      }
+    }
+
+    const expPending = Math.max(0, expTotal - expPaid);
+    const incPending = Math.max(0, incTotal - incEarned);
+    const netBalance = Math.round((incEarned - expPaid) * 100) / 100;
+
+    return {
+      expenseTotal: Math.round(expTotal * 100) / 100,
+      expensePaid: Math.round(expPaid * 100) / 100,
+      expensePending: Math.round(expPending * 100) / 100,
+      incomeTotal: Math.round(incTotal * 100) / 100,
+      incomeEarned: Math.round(incEarned * 100) / 100,
+      incomePending: Math.round(incPending * 100) / 100,
+      netBalance,
+    };
+  }, [days, dailyTotals]);
+
   // Today totals
   const todayStats = useMemo(() => {
     if (!todayDay) return { 
@@ -868,75 +900,78 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
 
       </div>
 
-      {/* Today Financial Summary Strip: Gastos, Falta Pagar, Ganancias y Recompensas por Cobrar */}
-      {todayDay && (
-        <div className="bg-gradient-to-r from-amber-50/90 via-slate-50 to-emerald-50/90 px-4 py-2.5 border-b border-slate-200 flex items-center justify-between flex-wrap gap-2 text-xs">
-          <div className="flex items-center gap-2">
-            <span className="font-extrabold text-slate-900 flex items-center gap-1.5">
-              <CalendarDays className="w-4 h-4 text-amber-600" />
-              Finanzas de Hoy ({todayDay.dayName} {todayDay.dayNumber} {todayDay.monthName}):
+      {/* FINANCIAL SUMMARY STRIP: Siempre muestra el costo total del periodo visible (7, 14, 30 o N días): Gastado, Ganado y Balance */}
+      <div className="bg-gradient-to-r from-amber-50/90 via-slate-50 to-emerald-50/90 px-3 sm:px-4 py-2 sm:py-2.5 border-b border-slate-200 flex items-center justify-between flex-wrap gap-2 text-xs">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="font-extrabold text-slate-900 flex items-center gap-1.5 text-xs sm:text-sm">
+            <CalendarDays className="w-4 h-4 text-sky-600 shrink-0" />
+            <span>Total Periodo ({days.length} días: {days[0]?.dayName} {days[0]?.dayNumber} {days[0]?.monthName?.slice(0, 3)} – {days[days.length - 1]?.dayName} {days[days.length - 1]?.dayNumber} {days[days.length - 1]?.monthName?.slice(0, 3)}):</span>
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap font-semibold text-[11px] sm:text-xs">
+          {/* Gastado en el periodo */}
+          <div className="flex items-center gap-1.5 bg-white px-2.5 py-1 rounded-lg border border-slate-300 shadow-2xs whitespace-nowrap">
+            <span className="text-slate-500 font-bold">Gastado:</span>
+            <span className="font-mono font-black text-slate-950 text-xs sm:text-sm tabular-nums">
+              S/.{periodStats.expensePaid.toFixed(2)}
+            </span>
+            {periodStats.expensePending > 0 && (
+              <span className="text-[10px] text-amber-700 bg-amber-50 px-1 rounded border border-amber-200 tabular-nums">
+                (Falta: S/.{periodStats.expensePending.toFixed(2)})
+              </span>
+            )}
+          </div>
+
+          {/* Ganado en el periodo */}
+          <div className="flex items-center gap-1.5 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-300 shadow-2xs whitespace-nowrap">
+            <span className="text-emerald-700 font-black flex items-center gap-0.5">
+              <Check className="w-3.5 h-3.5 stroke-[3]" />
+              Ganado:
+            </span>
+            <span className="font-mono font-black text-emerald-900 text-xs sm:text-sm tabular-nums">
+              +S/.{periodStats.incomeEarned.toFixed(2)}
+            </span>
+            {periodStats.incomePending > 0 && (
+              <span className="text-[10px] text-cyan-800 bg-cyan-50 px-1 rounded border border-cyan-200 tabular-nums">
+                (Por cobrar: S/.{periodStats.incomePending.toFixed(2)})
+              </span>
+            )}
+          </div>
+
+          {/* Balance del periodo (Ganado - Gastado) */}
+          <div className={`flex items-center gap-1.5 px-3 py-1 rounded-lg border shadow-2xs whitespace-nowrap ${
+            periodStats.netBalance > 0
+              ? 'bg-emerald-100 text-emerald-950 border-emerald-400 font-black'
+              : periodStats.netBalance < 0
+              ? 'bg-rose-100 text-rose-950 border-rose-300 font-black'
+              : 'bg-white text-slate-800 border-slate-300 font-bold'
+          }`}>
+            <span>Balance:</span>
+            <span className="font-mono font-black text-xs sm:text-sm tabular-nums">
+              {periodStats.netBalance > 0
+                ? `+S/.${periodStats.netBalance.toFixed(2)}`
+                : periodStats.netBalance < 0
+                ? `-S/.${Math.abs(periodStats.netBalance).toFixed(2)}`
+                : 'S/.0.00'}
             </span>
           </div>
 
-          <div className="flex items-center gap-2.5 sm:gap-4 flex-wrap font-semibold text-[11px] sm:text-xs">
-            {/* Gastos Pagados */}
-            <div className="flex items-center gap-1 bg-white px-2 py-0.5 rounded-lg border border-slate-200 shadow-2xs">
-              <span className="text-slate-500">Gastado:</span>
-              <span className="font-mono font-bold text-slate-900">
-                S/. {todayStats.expensePaid.toFixed(2)}
+          {/* Badge secundario de Hoy si está dentro del rango */}
+          {todayDay && (
+            <div className="hidden lg:flex items-center gap-1.5 px-2 py-0.5 rounded-lg bg-slate-200/60 text-slate-700 text-[11px] font-medium border border-slate-300 tabular-nums">
+              <span className="font-bold text-slate-900">Hoy:</span>
+              <span>Gasto S/.{todayStats.expensePaid.toFixed(2)}</span>
+              <span>•</span>
+              <span className="text-emerald-800 font-bold">Ganado +S/.{todayStats.incomeEarned.toFixed(2)}</span>
+              <span>•</span>
+              <span className={todayStats.netBalance >= 0 ? 'text-emerald-900 font-bold' : 'text-rose-700 font-bold'}>
+                Bal: {todayStats.netBalance >= 0 ? '+' : '-'}S/.{Math.abs(todayStats.netBalance).toFixed(2)}
               </span>
             </div>
-
-            {/* Gastos Faltantes por pagar */}
-            {todayStats.expensePending > 0 && (
-              <div className="flex items-center gap-1 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-300 shadow-2xs">
-                <span className="text-amber-800">Falta pagar:</span>
-                <span className="font-mono font-bold text-amber-950">
-                  S/. {todayStats.expensePending.toFixed(2)}
-                </span>
-              </div>
-            )}
-
-            {/* Ganancias Cobradas */}
-            <div className="flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-300 shadow-2xs">
-              <span className="text-emerald-700 font-bold flex items-center gap-0.5">
-                <Check className="w-3 h-3 stroke-[3]" />
-                Ganado:
-              </span>
-              <span className="font-mono font-black text-emerald-800">
-                + S/. {todayStats.incomeEarned.toFixed(2)}
-              </span>
-            </div>
-
-            {/* Recompensas / Servicios por cobrar */}
-            {todayStats.incomePending > 0 && (
-              <div className="flex items-center gap-1 bg-cyan-50 px-2 py-0.5 rounded-lg border border-cyan-300 shadow-2xs">
-                <span className="text-cyan-800 font-bold flex items-center gap-0.5">
-                  <Clock className="w-3 h-3" />
-                  Por cobrar:
-                </span>
-                <span className="font-mono font-bold text-cyan-900">
-                  S/. {todayStats.incomePending.toFixed(2)}
-                </span>
-              </div>
-            )}
-
-            {/* Balance Neto */}
-            <div className={`flex items-center gap-1 px-2.5 py-0.5 rounded-lg border shadow-2xs ${
-              todayStats.netBalance > 0
-                ? 'bg-emerald-100 text-emerald-950 border-emerald-400 font-black'
-                : todayStats.netBalance < 0
-                ? 'bg-rose-100 text-rose-950 border-rose-300 font-black'
-                : 'bg-white text-slate-700 border-slate-200'
-            }`}>
-              <span>Balance:</span>
-              <span className="font-mono font-bold">
-                {todayStats.netBalance > 0 ? `+ S/. ${todayStats.netBalance.toFixed(2)}` : `S/. ${todayStats.netBalance.toFixed(2)}`}
-              </span>
-            </div>
-          </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* MOBILE RESPONSIVE STRUCTURE: Interleaved Resources & Contained Days Scrolling */}
       <div className="block sm:hidden w-full bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden mb-2">
@@ -1004,7 +1039,7 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
               {days.map((day) => (
                 <div
                   key={day.dateStr}
-                  className={`w-[78px] min-w-[78px] max-w-[78px] py-2 px-1 text-center border-r border-slate-200 shrink-0 ${
+                  className={`w-[104px] min-w-[104px] max-w-[104px] py-2 px-1 text-center border-r border-slate-200 shrink-0 ${
                     day.isToday ? 'bg-amber-200/90 font-black text-amber-950 border-x-2 border-amber-400' : ''
                   } ${day.isWeekend && !day.isToday ? 'bg-slate-100/80' : ''}`}
                 >
@@ -1179,11 +1214,12 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                     </div>
 
                     {/* LÍNEA DE CAJAS DE DÍAS DEL RECURSO (tantas cajas como días que entran en la línea 2) */}
+                    {/* LÍNEA DE CAJAS DE DÍAS DEL RECURSO (tantas cajas como días que entran en la línea 2) */}
                     <div className="flex bg-white h-[54px] touch-pan-x touch-horizontal-zone">
                       {days.map((day) => (
                         <div
                           key={day.dateStr}
-                          className={`w-[78px] min-w-[78px] max-w-[78px] h-[54px] p-1 border-r border-slate-100 flex items-center justify-center shrink-0 ${
+                          className={`w-[104px] min-w-[104px] max-w-[104px] h-[54px] p-1 border-r border-slate-100 flex items-center justify-center shrink-0 ${
                             day.isToday ? 'bg-amber-50/40' : ''
                           }`}
                         >
@@ -1197,7 +1233,7 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
               })
             )}
 
-            {/* RESUMEN FINANCIERO EN MOBILE (5 filas alineadas con los días) */}
+            {/* RESUMEN FINANCIERO EN MOBILE (5 filas alineadas con los días con ancho fijo w-[104px] que tolera "-S/.1000.00" sin partirse) */}
             {filteredResources.length > 0 && (
               <div className="border-t-2 border-slate-200 divide-y divide-slate-100">
                 
@@ -1205,14 +1241,14 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                 <div>
                   <div className="sticky left-0 w-[calc(100vw-24px)] max-w-[calc(100vw-24px)] bg-slate-100/95 px-2.5 py-1 text-[11px] font-bold text-slate-800 flex items-center justify-between z-10">
                     <span className="flex items-center gap-1"><Receipt className="w-3 h-3 text-slate-500" /> Gastos pagados</span>
-                    <span className="text-[10px] text-slate-500 font-mono">Comprado</span>
+                    <span className="text-[10px] text-slate-700 font-mono font-bold">Total: S/.{periodStats.expensePaid.toFixed(2)}</span>
                   </div>
                   <div className="flex bg-slate-50/70 h-9">
                     {days.map((day) => {
                       const paid = dailyTotals[day.dateStr]?.expensePaid || 0;
                       return (
-                        <div key={day.dateStr} className={`w-[78px] min-w-[78px] max-w-[78px] h-9 p-1 border-r border-slate-200 flex items-center justify-center font-mono text-xs font-bold text-slate-800 shrink-0 ${day.isToday ? 'bg-amber-100/50' : ''}`}>
-                          {paid > 0 ? `S/. ${paid.toFixed(2)}` : '—'}
+                        <div key={day.dateStr} className={`w-[104px] min-w-[104px] max-w-[104px] h-9 p-1 border-r border-slate-200 flex items-center justify-center font-mono text-xs font-bold text-slate-800 shrink-0 whitespace-nowrap tabular-nums ${day.isToday ? 'bg-amber-100/50' : ''}`}>
+                          {paid > 0 ? `S/.${paid.toFixed(2)}` : '—'}
                         </div>
                       );
                     })}
@@ -1223,14 +1259,14 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                 <div>
                   <div className="sticky left-0 w-[calc(100vw-24px)] max-w-[calc(100vw-24px)] bg-amber-50/95 px-2.5 py-1 text-[11px] font-bold text-amber-950 flex items-center justify-between z-10">
                     <span className="flex items-center gap-1"><Clock className="w-3 h-3 text-amber-700" /> Falta pagar</span>
-                    <span className="text-[10px] text-amber-700 font-mono">Pendiente</span>
+                    <span className="text-[10px] text-amber-800 font-mono font-bold">Total: S/.{periodStats.expensePending.toFixed(2)}</span>
                   </div>
                   <div className="flex bg-amber-50/40 h-9">
                     {days.map((day) => {
                       const pending = dailyTotals[day.dateStr]?.expensePending || 0;
                       return (
-                        <div key={day.dateStr} className={`w-[78px] min-w-[78px] max-w-[78px] h-9 p-1 border-r border-slate-200 flex items-center justify-center font-mono text-xs font-bold text-amber-900 shrink-0 ${day.isToday ? 'bg-amber-100/60' : ''}`}>
-                          {pending > 0 ? `S/. ${pending.toFixed(2)}` : '—'}
+                        <div key={day.dateStr} className={`w-[104px] min-w-[104px] max-w-[104px] h-9 p-1 border-r border-slate-200 flex items-center justify-center font-mono text-xs font-bold text-amber-900 shrink-0 whitespace-nowrap tabular-nums ${day.isToday ? 'bg-amber-100/60' : ''}`}>
+                          {pending > 0 ? `S/.${pending.toFixed(2)}` : '—'}
                         </div>
                       );
                     })}
@@ -1241,14 +1277,14 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                 <div>
                   <div className="sticky left-0 w-[calc(100vw-24px)] max-w-[calc(100vw-24px)] bg-emerald-50/95 px-2.5 py-1 text-[11px] font-bold text-emerald-950 flex items-center justify-between z-10">
                     <span className="flex items-center gap-1"><TrendingUp className="w-3 h-3 text-emerald-700" /> Ganancias cobradas</span>
-                    <span className="text-[10px] text-emerald-700 font-mono font-bold">Ganado</span>
+                    <span className="text-[10px] text-emerald-800 font-mono font-bold">Total: +S/.{periodStats.incomeEarned.toFixed(2)}</span>
                   </div>
                   <div className="flex bg-emerald-50/40 h-9">
                     {days.map((day) => {
                       const earned = dailyTotals[day.dateStr]?.incomeEarned || 0;
                       return (
-                        <div key={day.dateStr} className={`w-[78px] min-w-[78px] max-w-[78px] h-9 p-1 border-r border-emerald-200 flex items-center justify-center font-mono text-xs font-black text-emerald-800 shrink-0 ${day.isToday ? 'bg-emerald-100/60' : ''}`}>
-                          {earned > 0 ? `+ S/. ${earned.toFixed(2)}` : '—'}
+                        <div key={day.dateStr} className={`w-[104px] min-w-[104px] max-w-[104px] h-9 p-1 border-r border-emerald-200 flex items-center justify-center font-mono text-xs font-black text-emerald-800 shrink-0 whitespace-nowrap tabular-nums ${day.isToday ? 'bg-emerald-100/60' : ''}`}>
+                          {earned > 0 ? `+S/.${earned.toFixed(2)}` : '—'}
                         </div>
                       );
                     })}
@@ -1259,14 +1295,14 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                 <div>
                   <div className="sticky left-0 w-[calc(100vw-24px)] max-w-[calc(100vw-24px)] bg-cyan-50/95 px-2.5 py-1 text-[11px] font-bold text-cyan-950 flex items-center justify-between z-10">
                     <span className="flex items-center gap-1"><Coins className="w-3 h-3 text-cyan-700" /> Por cobrar</span>
-                    <span className="text-[10px] text-cyan-700 font-mono">Recompensa</span>
+                    <span className="text-[10px] text-cyan-800 font-mono font-bold">Total: S/.{periodStats.incomePending.toFixed(2)}</span>
                   </div>
                   <div className="flex bg-cyan-50/30 h-9">
                     {days.map((day) => {
                       const incPending = dailyTotals[day.dateStr]?.incomePending || 0;
                       return (
-                        <div key={day.dateStr} className={`w-[78px] min-w-[78px] max-w-[78px] h-9 p-1 border-r border-cyan-200 flex items-center justify-center font-mono text-xs font-bold text-cyan-900 shrink-0 ${day.isToday ? 'bg-cyan-100/60' : ''}`}>
-                          {incPending > 0 ? `S/. ${incPending.toFixed(2)}` : '—'}
+                        <div key={day.dateStr} className={`w-[104px] min-w-[104px] max-w-[104px] h-9 p-1 border-r border-cyan-200 flex items-center justify-center font-mono text-xs font-bold text-cyan-900 shrink-0 whitespace-nowrap tabular-nums ${day.isToday ? 'bg-cyan-100/60' : ''}`}>
+                          {incPending > 0 ? `S/.${incPending.toFixed(2)}` : '—'}
                         </div>
                       );
                     })}
@@ -1277,16 +1313,18 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                 <div>
                   <div className="sticky left-0 w-[calc(100vw-24px)] max-w-[calc(100vw-24px)] bg-slate-200/95 px-2.5 py-1 text-[11px] font-black text-slate-900 flex items-center justify-between z-10">
                     <span className="flex items-center gap-1"><DollarSign className="w-3 h-3 text-slate-700" /> Balance neto</span>
-                    <span className="text-[10px] text-slate-600 font-bold">Ganado - Gastado</span>
+                    <span className="text-[10px] text-slate-900 font-mono font-black">
+                      Total: {periodStats.netBalance > 0 ? `+S/.${periodStats.netBalance.toFixed(2)}` : periodStats.netBalance < 0 ? `-S/.${Math.abs(periodStats.netBalance).toFixed(2)}` : 'S/.0.00'}
+                    </span>
                   </div>
                   <div className="flex bg-slate-100/70 h-10">
                     {days.map((day) => {
                       const net = dailyTotals[day.dateStr]?.netBalance || 0;
                       return (
-                        <div key={day.dateStr} className={`w-[78px] min-w-[78px] max-w-[78px] h-10 p-1 border-r border-slate-300 flex items-center justify-center font-mono text-xs font-black shrink-0 ${
+                        <div key={day.dateStr} className={`w-[104px] min-w-[104px] max-w-[104px] h-10 p-1 border-r border-slate-300 flex items-center justify-center font-mono text-xs font-black shrink-0 whitespace-nowrap tabular-nums ${
                           net > 0 ? 'text-emerald-700 bg-emerald-50/60' : net < 0 ? 'text-rose-700 bg-rose-50/60' : 'text-slate-600'
                         } ${day.isToday ? 'ring-1 ring-amber-400' : ''}`}>
-                          {net > 0 ? `+ S/. ${net.toFixed(2)}` : net < 0 ? `- S/. ${Math.abs(net).toFixed(2)}` : 'S/. 0.00'}
+                          {net > 0 ? `+S/.${net.toFixed(2)}` : net < 0 ? `-S/.${Math.abs(net).toFixed(2)}` : 'S/.0.00'}
                         </div>
                       );
                     })}
@@ -1351,12 +1389,12 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                 )}
               </th>
 
-              {/* Day Columns Headers with strictly fixed width w-[110px] */}
+              {/* Day Columns Headers with strictly fixed width w-[118px] tolerating '-S/.1000.00' */}
               {days.map((day) => {
                 return (
                   <th
                     key={day.dateStr}
-                    className={`w-[110px] min-w-[110px] max-w-[110px] py-2 px-1 text-center transition-colors ${
+                    className={`w-[118px] min-w-[118px] max-w-[118px] py-2 px-1 text-center transition-colors ${
                       day.isToday 
                         ? 'bg-amber-200/95 font-black text-amber-950 border-x-2 border-amber-400 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.25)]' 
                         : 'border-r border-slate-200'
@@ -1584,7 +1622,7 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                       return (
                         <td
                           key={day.dateStr}
-                          className={`p-1.5 border-r border-slate-200 transition-colors align-middle text-center w-[110px] min-w-[110px] max-w-[110px] h-[68px] min-h-[68px] max-h-[68px] ${
+                          className={`p-1.5 border-r border-slate-200 transition-colors align-middle text-center w-[118px] min-w-[118px] max-w-[118px] h-[68px] min-h-[68px] max-h-[68px] ${
                             day.isToday ? 'bg-amber-50/50' : ''
                           }`}
                         >
@@ -1593,7 +1631,7 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                             <div 
                               onClick={() => handleOpenDurationPopover(res, day, dayState, costNum)}
                               onDoubleClick={(e) => handleQuickCycleState(res, day, dayState, e)}
-                              className={`w-[98px] h-[52px] min-h-[52px] max-h-[52px] mx-auto py-1 px-1 rounded-xl transition-all border flex flex-col items-center justify-center gap-0.5 cursor-pointer shadow-2xs select-none group/dcell ${
+                              className={`w-[104px] h-[52px] min-h-[52px] max-h-[52px] mx-auto py-1 px-1 rounded-xl transition-all border flex flex-col items-center justify-center gap-0.5 cursor-pointer shadow-2xs select-none group/dcell ${
                                 dayState === 'conseguido' || dayState === 'renovado'
                                   ? 'bg-cyan-500 text-white border-cyan-600 font-black shadow-xs hover:bg-cyan-600'
                                   : dayState === 'disponible'
@@ -1666,7 +1704,7 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                             </div>
                           ) : res.hasCost ? (
                             /* CASE 2: REGULAR RECURRING RESOURCE OR INCOME / ACTIVO */
-                            <div className={`w-[98px] h-[52px] min-h-[52px] max-h-[52px] mx-auto py-1 px-1 rounded-xl transition-all border flex flex-col items-center justify-center gap-1 ${
+                            <div className={`w-[104px] h-[52px] min-h-[52px] max-h-[52px] mx-auto py-1 px-1 rounded-xl transition-all border flex flex-col items-center justify-center gap-1 ${
                               hasCostEntered && isBought
                                 ? 'bg-emerald-100/90 border-emerald-400 text-emerald-950 shadow-2xs'
                                 : hasCostEntered
@@ -1781,8 +1819,8 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                       Gastos pagados
                     </span>
                   </div>
-                  <span className="text-[10px] font-bold text-slate-700 bg-slate-200/80 px-1.5 py-0.5 rounded">
-                    Comprado
+                  <span className="text-[10px] font-bold text-slate-800 bg-slate-200/90 px-1.5 py-0.5 rounded font-mono">
+                    Total: S/.{periodStats.expensePaid.toFixed(2)}
                   </span>
                 </div>
               </td>
@@ -1792,11 +1830,11 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                 return (
                   <td
                     key={day.dateStr}
-                    className={`p-2 text-center border-r border-slate-200/80 font-mono text-xs sm:text-sm font-bold text-slate-900 w-[110px] min-w-[110px] max-w-[110px] ${
+                    className={`p-2 text-center border-r border-slate-200/80 font-mono text-xs sm:text-sm font-bold text-slate-900 w-[118px] min-w-[118px] max-w-[118px] whitespace-nowrap tabular-nums ${
                       day.isToday ? 'bg-amber-100/50 text-amber-950 font-black' : ''
                     }`}
                   >
-                    S/. {paid.toFixed(2)}
+                    {paid > 0 ? `S/.${paid.toFixed(2)}` : '—'}
                   </td>
                 );
               })}
@@ -1814,8 +1852,8 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                       Falta pagar
                     </span>
                   </div>
-                  <span className="text-[10px] font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">
-                    Por comprar
+                  <span className="text-[10px] font-bold text-amber-900 bg-amber-100 px-1.5 py-0.5 rounded font-mono">
+                    Total: S/.{periodStats.expensePending.toFixed(2)}
                   </span>
                 </div>
               </td>
@@ -1825,11 +1863,11 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                 return (
                   <td
                     key={day.dateStr}
-                    className={`p-2 text-center border-r border-slate-200/80 font-mono text-xs sm:text-sm font-bold text-amber-900 w-[110px] min-w-[110px] max-w-[110px] ${
+                    className={`p-2 text-center border-r border-slate-200/80 font-mono text-xs sm:text-sm font-bold text-amber-900 w-[118px] min-w-[118px] max-w-[118px] whitespace-nowrap tabular-nums ${
                       day.isToday ? 'bg-amber-100/70 font-black' : ''
                     }`}
                   >
-                    {pending > 0 ? `S/. ${pending.toFixed(2)}` : '—'}
+                    {pending > 0 ? `S/.${pending.toFixed(2)}` : '—'}
                   </td>
                 );
               })}
@@ -1847,8 +1885,8 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                       Ganancias cobradas
                     </span>
                   </div>
-                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded">
-                    Ganado
+                  <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded font-mono">
+                    Total: +S/.{periodStats.incomeEarned.toFixed(2)}
                   </span>
                 </div>
               </td>
@@ -1858,11 +1896,11 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                 return (
                   <td
                     key={day.dateStr}
-                    className={`p-2 text-center border-r border-emerald-200 font-mono text-xs sm:text-sm font-black text-emerald-800 w-[110px] min-w-[110px] max-w-[110px] ${
+                    className={`p-2 text-center border-r border-emerald-200 font-mono text-xs sm:text-sm font-black text-emerald-800 w-[118px] min-w-[118px] max-w-[118px] whitespace-nowrap tabular-nums ${
                       day.isToday ? 'bg-emerald-200/70 text-emerald-950 font-black' : ''
                     }`}
                   >
-                    {earned > 0 ? `+ S/. ${earned.toFixed(2)}` : '—'}
+                    {earned > 0 ? `+S/.${earned.toFixed(2)}` : '—'}
                   </td>
                 );
               })}
@@ -1880,8 +1918,8 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                       Servicios por cobrar
                     </span>
                   </div>
-                  <span className="text-[10px] font-bold text-cyan-800 bg-cyan-100 px-1.5 py-0.5 rounded">
-                    Recompensa
+                  <span className="text-[10px] font-bold text-cyan-900 bg-cyan-100 px-1.5 py-0.5 rounded font-mono">
+                    Total: S/.{periodStats.incomePending.toFixed(2)}
                   </span>
                 </div>
               </td>
@@ -1891,11 +1929,11 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                 return (
                   <td
                     key={day.dateStr}
-                    className={`p-2 text-center border-r border-cyan-200/70 font-mono text-xs sm:text-sm font-bold text-cyan-900 w-[110px] min-w-[110px] max-w-[110px] ${
+                    className={`p-2 text-center border-r border-cyan-200/70 font-mono text-xs sm:text-sm font-bold text-cyan-900 w-[118px] min-w-[118px] max-w-[118px] whitespace-nowrap tabular-nums ${
                       day.isToday ? 'bg-cyan-100/70 font-black' : ''
                     }`}
                   >
-                    {incPending > 0 ? `S/. ${incPending.toFixed(2)}` : '—'}
+                    {incPending > 0 ? `S/.${incPending.toFixed(2)}` : '—'}
                   </td>
                 );
               })}
@@ -1913,8 +1951,8 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                       Balance neto
                     </span>
                   </div>
-                  <span className="text-[10px] font-bold text-slate-600">
-                    Ganado - Gastado
+                  <span className="text-[10px] font-black text-slate-900 bg-white px-1.5 py-0.5 rounded border border-slate-300 font-mono">
+                    Total: {periodStats.netBalance > 0 ? `+S/.${periodStats.netBalance.toFixed(2)}` : periodStats.netBalance < 0 ? `-S/.${Math.abs(periodStats.netBalance).toFixed(2)}` : 'S/.0.00'}
                   </span>
                 </div>
               </td>
@@ -1924,7 +1962,7 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                 return (
                   <td
                     key={day.dateStr}
-                    className={`p-2 text-center border-r border-slate-300 font-mono text-xs sm:text-sm font-black w-[110px] min-w-[110px] max-w-[110px] ${
+                    className={`p-2 text-center border-r border-slate-300 font-mono text-xs sm:text-sm font-black w-[118px] min-w-[118px] max-w-[118px] whitespace-nowrap tabular-nums ${
                       net > 0 
                         ? 'text-emerald-700 bg-emerald-50/50' 
                         : net < 0 
@@ -1932,7 +1970,7 @@ export const RegistroMatrixGrid: React.FC<RegistroMatrixGridProps> = ({
                         : 'text-slate-500'
                     } ${day.isToday ? 'ring-2 ring-amber-400 inset-0' : ''}`}
                   >
-                    {net > 0 ? `+ S/. ${net.toFixed(2)}` : net < 0 ? `- S/. ${Math.abs(net).toFixed(2)}` : 'S/. 0.00'}
+                    {net > 0 ? `+S/.${net.toFixed(2)}` : net < 0 ? `-S/.${Math.abs(net).toFixed(2)}` : 'S/.0.00'}
                   </td>
                 );
               })}

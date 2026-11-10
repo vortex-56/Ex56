@@ -1,15 +1,23 @@
-import { Project, Activity, ActivityGroup, SubActivity, Resource, DailyResourceLog } from '../types';
+import { Project, Activity, ActivityGroup, SubActivity, Resource, DailyResourceLog, Idea, IdeaPhrase } from '../types';
 
 /**
- * Generates raw JSON export string representing the entire project losslessly.
+ * Generates raw JSON export string representing the entire project losslessly,
+ * including ideas and timestamp of download.
  */
 export function exportProjectToJSON(project: Project): string {
-  return JSON.stringify(project, null, 2);
+  const downloadDateIso = new Date().toISOString();
+  const downloadDateFormatted = new Date().toLocaleString('es-PE');
+  const exportPayload = {
+    ...project,
+    lastDownloadedAt: downloadDateIso,
+    fechaDescarga: downloadDateFormatted,
+  };
+  return JSON.stringify(exportPayload, null, 2);
 }
 
 /**
  * Generates a clean, comprehensive CSV export representation of the project,
- * including all active activities, completed past activities, groups, resources, and logs.
+ * including all active activities, completed past activities, groups, resources, ideas, and logs.
  */
 export function exportProjectToCSV(project: Project): string {
   const lines: string[] = [];
@@ -20,6 +28,8 @@ export function exportProjectToCSV(project: Project): string {
   lines.push(`ProjectName,${escapeCSV(project.name)}`);
   lines.push(`CreatedAt,${escapeCSV(project.createdAt)}`);
   lines.push(`UpdatedAt,${escapeCSV(project.updatedAt)}`);
+  lines.push(`FechaDescarga,${escapeCSV(new Date().toLocaleString('es-PE'))}`);
+  lines.push(`LastDownloadedAt,${escapeCSV(new Date().toISOString())}`);
   lines.push('');
 
   // Groups block
@@ -111,6 +121,25 @@ export function exportProjectToCSV(project: Project): string {
       escapeCSV(val.state || ''),
     ].join(','));
   }
+  lines.push('');
+
+  // Ideas block
+  lines.push('# IDEAS');
+  lines.push('IdeaId,Title,BoxColor,Order,Collapsed,CreatedAt,UpdatedAt,PhrasesJson,ContentHtml');
+  for (const idea of (project.ideas || [])) {
+    const phrasesJson = JSON.stringify(idea.phrases || []);
+    lines.push([
+      escapeCSV(idea.id),
+      escapeCSV(idea.title),
+      escapeCSV(idea.boxColor || '#FFFFFF'),
+      idea.order !== undefined ? idea.order.toString() : '0',
+      idea.collapsed ? '1' : '0',
+      escapeCSV(idea.createdAt || ''),
+      escapeCSV(idea.updatedAt || ''),
+      escapeCSV(phrasesJson),
+      escapeCSV(idea.contentHtml || ''),
+    ].join(','));
+  }
 
   return lines.join('\n');
 }
@@ -120,15 +149,17 @@ export function exportProjectToCSV(project: Project): string {
  */
 export function parseCSVToProject(csvText: string): Project {
   const lines = csvText.split(/\r?\n/);
-  let mode: 'meta' | 'groups' | 'activities' | 'resources' | 'logs' | 'resource_logs' = 'meta';
+  let mode: 'meta' | 'groups' | 'activities' | 'resources' | 'logs' | 'resource_logs' | 'ideas' = 'meta';
 
   let id = 'proj_' + Math.random().toString(36).substring(2, 9);
   let name = 'Proyecto Importado (Ex56)';
   let createdAt = new Date().toISOString();
   let updatedAt = new Date().toISOString();
+  let lastDownloadedAt: string | undefined = undefined;
   const groups: ActivityGroup[] = [];
   const activities: Activity[] = [];
   const resources: Resource[] = [];
+  const ideas: Idea[] = [];
   const completionLogs: Record<string, boolean> = {};
   const resourceLogs: Record<string, DailyResourceLog> = {};
 
@@ -153,6 +184,9 @@ export function parseCSVToProject(csvText: string): Project {
       continue;
     } else if (line.startsWith('# RESOURCE_LOGS')) {
       mode = 'resource_logs';
+      continue;
+    } else if (line.startsWith('# IDEAS')) {
+      mode = 'ideas';
       continue;
     } else if (line.startsWith('#')) {
       continue;
@@ -302,13 +336,32 @@ export function parseCSVToProject(csvText: string): Project {
       }
     } else if (mode === 'resource_logs') {
       if (row[0] === 'LogKey') continue; // header
+      resourceLogs[row[0]] = {
+        cost: parseFloat(row[1]) || 0,
+        bought: row[2] === '1',
+        renewed: row[3] === '1',
+        state: (row[4] as any) || undefined,
+      };
+    } else if (mode === 'ideas') {
+      if (row[0] === 'IdeaId') continue; // header
       if (row.length >= 2) {
-        resourceLogs[row[0]] = {
-          cost: parseFloat(row[1]) || 0,
-          bought: row[2] === '1',
-          renewed: row[3] === '1',
-          state: (row[4] as any) || undefined,
-        };
+        let phrases: IdeaPhrase[] = [];
+        try {
+          if (row[7]) phrases = JSON.parse(row[7]);
+        } catch {
+          phrases = [];
+        }
+        ideas.push({
+          id: row[0],
+          title: row[1] || 'Idea',
+          boxColor: row[2] || '#FFFFFF',
+          order: row[3] ? parseInt(row[3], 10) : ideas.length,
+          collapsed: row[4] === '1',
+          createdAt: row[5] || new Date().toISOString(),
+          updatedAt: row[6] || new Date().toISOString(),
+          phrases,
+          contentHtml: row[8] || undefined,
+        });
       }
     }
   }
@@ -321,8 +374,10 @@ export function parseCSVToProject(csvText: string): Project {
     groups,
     activities,
     resources,
+    ideas,
     completionLogs,
     resourceLogs,
+    lastDownloadedAt,
   };
 }
 
@@ -338,10 +393,12 @@ export function exportProjectToTXT(project: Project): string {
   lines.push(`EX56 - REPORTE DE PROYECTO: ${project.name.toUpperCase()}`);
   lines.push('================================================================');
   lines.push(`ID del Proyecto: ${project.id}`);
+  lines.push(`Fecha de Descarga: ${new Date().toLocaleString('es-PE')} (${new Date().toISOString()})`);
   lines.push(`Fecha de Creación: ${project.createdAt}`);
   lines.push(`Última Actualización: ${project.updatedAt}`);
   lines.push(`Total de Actividades: ${project.activities.length}`);
   lines.push(`Total de Recursos: ${(project.resources || []).length}`);
+  lines.push(`Total de Cajas de Ideas: ${(project.ideas || []).length}`);
   lines.push(`Total de Casillas Marcadas: ${completedCount}`);
   lines.push('');
 
@@ -392,6 +449,29 @@ export function exportProjectToTXT(project: Project): string {
       const durationStr = r.hasDurationStatus ? 'Con estado de duración' : 'Gasto recurrente/frecuente';
       const costStr = r.hasCost ? `S/. ${r.cost.toFixed(2)}` : 'Sin precio';
       lines.push(`• [${r.code || 'REC'}] ${r.name} - ${costStr} (${durationStr}, Estado: ${r.availabilityStatus || 'disponible'})`);
+    }
+  }
+  lines.push('');
+
+  lines.push('----------------------------------------------------------------');
+  lines.push('IDEAS Y NOTAS REGISTRADAS (EX56):');
+  lines.push('----------------------------------------------------------------');
+  if (!project.ideas || project.ideas.length === 0) {
+    lines.push('(Sin ideas ni notas registradas)');
+  } else {
+    for (const idea of project.ideas) {
+      lines.push(`■ [IDEA] ${idea.title} (Color de fondo: ${idea.boxColor || '#FFFFFF'}, Orden: ${idea.order})`);
+      if (idea.phrases && idea.phrases.length > 0) {
+        for (const phrase of idea.phrases) {
+          const sizeStr = phrase.fontSize ? `[Tamaño: ${phrase.fontSize}]` : '';
+          const weightStr = phrase.fontWeight ? `[Grosor: ${phrase.fontWeight}]` : '';
+          const colorStr = phrase.color ? `[Color: ${phrase.color}]` : '';
+          lines.push(`   • ${phrase.text} ${sizeStr} ${weightStr} ${colorStr}`);
+        }
+      } else {
+        lines.push('   (Caja sin frases)');
+      }
+      lines.push('');
     }
   }
   lines.push('');
@@ -520,6 +600,24 @@ function sanitizeProjectData(data: any): Project {
     completionLogs: typeof data.completionLogs === 'object' && data.completionLogs !== null ? data.completionLogs : {},
     resourceLogs: typeof data.resourceLogs === 'object' && data.resourceLogs !== null ? data.resourceLogs : {},
     dailyMissionsCustomIds: Array.isArray(data.dailyMissionsCustomIds) ? data.dailyMissionsCustomIds : undefined,
+    ideas: Array.isArray(data.ideas) ? data.ideas.map((item: any, idx: number) => ({
+      id: item.id || 'idea_' + Math.random().toString(36).substring(2, 9),
+      title: item.title || 'Idea',
+      boxColor: item.boxColor || '#FFFFFF',
+      contentHtml: typeof item.contentHtml === 'string' ? item.contentHtml : undefined,
+      order: item.order !== undefined ? Number(item.order) : idx,
+      collapsed: item.collapsed !== undefined ? !!item.collapsed : false,
+      createdAt: item.createdAt || new Date().toISOString(),
+      updatedAt: item.updatedAt || new Date().toISOString(),
+      phrases: Array.isArray(item.phrases) ? item.phrases.map((p: any) => ({
+        id: p.id || 'phr_' + Math.random().toString(36).substring(2, 9),
+        text: typeof p.text === 'string' ? p.text : '',
+        fontSize: p.fontSize || 'base',
+        color: p.color || '#0F172A',
+        fontWeight: p.fontWeight || 'normal',
+      })) : [],
+    })) : [],
+    lastDownloadedAt: typeof data.lastDownloadedAt === 'string' ? data.lastDownloadedAt : (data.FechaDescarga || undefined),
   };
 }
 
