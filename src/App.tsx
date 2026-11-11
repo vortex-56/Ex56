@@ -44,6 +44,7 @@ import {
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from './lib/supabaseClient';
 import { LoginScreen } from './components/LoginScreen';
+import { SupabaseGuidanceModal } from './components/SupabaseGuidanceModal';
 import { 
   loadUserProjectsFromSupabase, 
   loadFullProjectFromSupabase,
@@ -114,6 +115,8 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
   const [isLoadingProjects, setIsLoadingProjects] = useState<boolean>(false);
+  const [supabaseError, setSupabaseError] = useState<string | null>(null);
+  const [isGuidanceOpen, setIsGuidanceOpen] = useState<boolean>(false);
 
   // Guest Mode state (persisted so page refreshes in guest mode stay in dashboard)
   const [isGuest, setIsGuest] = useState<boolean>(() => {
@@ -220,6 +223,7 @@ export default function App() {
     const fetchUserProjects = async () => {
       setIsLoadingProjects(true);
       try {
+        console.log('🔄 [Supabase] Consultando tabla projects para user_id:', user.id);
         const remoteProjects = await loadUserProjectsFromSupabase(user.id);
         if (!isMounted) return;
 
@@ -231,37 +235,61 @@ export default function App() {
         }
 
         if (remoteProjects && remoteProjects.length > 0) {
+          console.log(`✅ [Supabase] Se cargaron ${remoteProjects.length} proyectos desde la nube.`);
           setProjects(remoteProjects);
           saveProjectsToStorage(remoteProjects);
           const activeId = getActiveProjectId();
           const found = remoteProjects.find(p => p.id === activeId) || remoteProjects[0];
           setCurrentProject(found);
           setActiveProjectId(found.id);
+          setSupabaseError(null);
+          setSaveToast('☁️ Datos cargados desde Supabase');
+          setTimeout(() => setSaveToast(null), 2500);
         } else {
           // If no projects in Supabase yet, migrate existing local projects to Supabase
           const localStored = getStoredProjects();
           if (localStored.length > 0) {
+            console.log('📦 [Supabase] Migrando proyectos locales de este equipo hacia Supabase...');
             setProjects(localStored);
             const activeId = getActiveProjectId();
             const found = localStored.find(p => p.id === activeId) || localStored[0];
             setCurrentProject(found);
             setActiveProjectId(found.id);
+
             // Auto-migrate local projects to Supabase tables
+            let firstError: string | null = null;
             for (const proj of localStored) {
-              await insertProjectIntoSupabase(user.id, proj).catch(e => console.warn('Supabase migration note:', e));
+              const res = await insertProjectIntoSupabase(user.id, proj);
+              if (!res.success && !firstError) {
+                firstError = res.error || 'Error al guardar en Supabase';
+              }
             }
-            setSaveToast('¡Sesión iniciada con Google! Tus proyectos locales se han sincronizado con la nube.');
+
+            if (firstError) {
+              setSupabaseError(firstError);
+              setSaveToast('⚠️ Aviso Supabase: ' + firstError);
+            } else {
+              setSupabaseError(null);
+              setSaveToast('¡Sesión iniciada! Tus proyectos se han sincronizado con Supabase.');
+            }
             setTimeout(() => setSaveToast(null), 3500);
           } else {
+            console.log('🌱 [Supabase] Creando proyecto inicial en Supabase...');
             const sample = createSampleProject();
             setProjects([sample]);
             setCurrentProject(sample);
             setActiveProjectId(sample.id);
-            insertProjectIntoSupabase(user.id, sample).catch(e => console.warn('Supabase initial sync:', e));
+            const res = await insertProjectIntoSupabase(user.id, sample);
+            if (!res.success) {
+              setSupabaseError(res.error || 'Error al crear proyecto en Supabase');
+            } else {
+              setSupabaseError(null);
+            }
           }
         }
-      } catch (err) {
-        console.error('Error al cargar proyectos de Supabase:', err);
+      } catch (err: any) {
+        console.error('❌ Error al cargar proyectos de Supabase:', err);
+        setSupabaseError(err?.message || 'Error al conectar con Supabase');
         const localStored = getStoredProjects();
         if (localStored.length > 0 && isMounted) {
           setProjects(localStored);
@@ -393,9 +421,11 @@ export default function App() {
       setSaveToast('Guardando en Supabase...');
       const res = await updateProjectInSupabase(user.id, currentProject);
       if (res.success) {
+        setSupabaseError(null);
         setSaveToast('¡Proyecto y progreso sincronizados con Supabase!');
       } else {
-        setSaveToast('Error al sincronizar con Supabase: ' + (res.error || ''));
+        setSupabaseError(res.error || 'Error desconocido al guardar en Supabase');
+        setSaveToast('⚠️ Error Supabase: ' + (res.error || ''));
       }
     } else {
       saveProject(currentProject);
@@ -403,7 +433,7 @@ export default function App() {
       setProjects(updatedList);
       setSaveToast('¡Proyecto y progreso guardados con éxito!');
     }
-    setTimeout(() => setSaveToast(null), 2500);
+    setTimeout(() => setSaveToast(null), 3500);
   }, [currentProject, user, isGuest]);
 
   // Project Management Handlers
@@ -1930,7 +1960,29 @@ export default function App() {
         onSignOut={handleSignOut}
         isGuest={isGuest}
         onExitGuest={handleExitGuest}
+        supabaseError={supabaseError}
+        onOpenSupabaseGuidance={() => setIsGuidanceOpen(true)}
       />
+
+      {/* Banner de Aviso si Supabase RLS bloquea la sincronización en la nube */}
+      {user && !isGuest && supabaseError && (
+        <div className="bg-rose-50 border-b border-rose-300 text-rose-950 px-3 sm:px-6 py-2.5 text-xs flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-rose-600 animate-pulse shrink-0" />
+            <span className="text-slate-800">
+              <strong>Atención de sincronización:</strong> Los datos no se pudieron guardar en la nube ({supabaseError}). 
+              Para que tu teléfono y PC sincronicen, ejecuta el script de permisos en Supabase.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsGuidanceOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-lg transition-colors cursor-pointer text-xs shrink-0 shadow-xs active:scale-95"
+          >
+            Ver solución rápida (1 clic)
+          </button>
+        </div>
+      )}
 
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-2 sm:p-6 space-y-3 sm:space-y-4 max-w-full overflow-x-hidden">
@@ -2231,6 +2283,14 @@ export default function App() {
         onToggleCell={handleToggleCell}
         onToggleParentDay={handleToggleParentDay}
         onUpdateProjectMissionsVisibility={handleUpdateDailyMissionsVisibility}
+      />
+
+      {/* Supabase Permissions & Guidance Modal */}
+      <SupabaseGuidanceModal
+        isOpen={isGuidanceOpen}
+        onClose={() => setIsGuidanceOpen(false)}
+        errorMessage={supabaseError}
+        onRetrySync={handleSaveProject}
       />
 
     </div>

@@ -42,6 +42,8 @@ interface TopBarProps {
   onSignOut?: () => void;
   isGuest?: boolean;
   onExitGuest?: () => void;
+  supabaseError?: string | null;
+  onOpenSupabaseGuidance?: () => void;
 }
 
 export const TopBar: React.FC<TopBarProps> = ({
@@ -68,6 +70,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   onSignOut,
   isGuest = false,
   onExitGuest,
+  supabaseError,
+  onOpenSupabaseGuidance,
 }) => {
   const [isEditingName, setIsEditingName] = React.useState(false);
   const [nameValue, setNameValue] = React.useState(projectName);
@@ -298,6 +302,30 @@ export const TopBar: React.FC<TopBarProps> = ({
             )}
           </button>
 
+          {/* Estado de Sincronización en la Nube */}
+          {!isGuest && (
+            supabaseError ? (
+              <button
+                type="button"
+                onClick={onOpenSupabaseGuidance}
+                className="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-300 rounded-lg transition-colors cursor-pointer shadow-2xs shrink-0 animate-pulse"
+                title="Error en Supabase: Clic para ver cómo solucionarlo"
+              >
+                <span className="w-2 h-2 rounded-full bg-rose-600 shrink-0" />
+                <span className="hidden xl:inline">Error Supabase</span>
+                <span className="xl:hidden">Error</span>
+              </button>
+            ) : (
+              <div
+                className="hidden xl:inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg shadow-2xs shrink-0"
+                title="Conectado y sincronizado con Supabase"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                <span>Nube activa</span>
+              </div>
+            )
+          )}
+
           {/* Botón Principal Dinámico */}
           {activeTab === 'ideas' ? (
             <button
@@ -454,29 +482,42 @@ export const TopBar: React.FC<TopBarProps> = ({
         </div>
 
         {/* Derecha Mobile: Modo Invitado / Usuario y Botón Salir */}
-        {(onSignOut || onExitGuest) && (
-          <div className="flex items-center gap-1 shrink-0">
-            {isGuest ? (
-              <span className="px-1.5 py-0.5 rounded bg-amber-50 border border-amber-300 text-amber-900 text-[10px] font-bold">
-                Invitado
-              </span>
-            ) : (
-              <span className="text-[11px] font-semibold text-slate-600 max-w-[80px] truncate">
-                {userEmail?.split('@')[0]}
-              </span>
-            )}
-
+        <div className="flex items-center gap-1 shrink-0">
+          {!isGuest && supabaseError && (
             <button
               type="button"
-              onClick={isGuest ? onExitGuest : onSignOut}
-              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors cursor-pointer"
-              title={isGuest ? 'Salir del modo invitado' : 'Cerrar sesión'}
+              onClick={onOpenSupabaseGuidance}
+              className="px-1.5 py-0.5 rounded bg-rose-100 border border-rose-300 text-rose-800 text-[10px] font-bold cursor-pointer animate-pulse"
+              title="Error en Supabase: Clic para ver cómo resolverlo"
             >
-              <LogOut className="w-3 h-3 shrink-0" />
-              <span>{isGuest ? 'Salir' : 'Cerrar'}</span>
+              ⚠️ Error Nube
             </button>
-          </div>
-        )}
+          )}
+
+          {(onSignOut || onExitGuest) && (
+            <>
+              {isGuest ? (
+                <span className="px-1.5 py-0.5 rounded bg-amber-50 border border-amber-300 text-amber-900 text-[10px] font-bold">
+                  Invitado
+                </span>
+              ) : (
+                <span className="text-[11px] font-semibold text-slate-600 max-w-[80px] truncate">
+                  {userEmail?.split('@')[0]}
+                </span>
+              )}
+
+              <button
+                type="button"
+                onClick={isGuest ? onExitGuest : onSignOut}
+                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors cursor-pointer"
+                title={isGuest ? 'Salir del modo invitado' : 'Cerrar sesión'}
+              >
+                <LogOut className="w-3 h-3 shrink-0" />
+                <span>{isGuest ? 'Salir' : 'Cerrar'}</span>
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Mobile Línea 2: Las 3 Pestañas Principales en fila propia dedicada al 100% de ancho */}

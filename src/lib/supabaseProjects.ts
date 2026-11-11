@@ -294,7 +294,10 @@ export async function insertProjectIntoSupabase(userId: string, project: Project
     }
 
     console.log('✅ [Supabase] Proyecto creado en tabla projects correctamente.');
-    await saveProjectArraysToSupabase(project.id, project);
+    const childRes = await saveProjectArraysToSupabase(project.id, project);
+    if (!childRes.success) {
+      return childRes;
+    }
 
     return { success: true };
   } catch (err: any) {
@@ -307,10 +310,9 @@ export async function insertProjectIntoSupabase(userId: string, project: Project
  * Saves all child arrays (groups, activities, resources, completion_logs, resource_logs, ideas)
  * into their respective Supabase tables using `project_id`.
  */
-export async function saveProjectArraysToSupabase(projectId: string, project: Project): Promise<void> {
+export async function saveProjectArraysToSupabase(projectId: string, project: Project): Promise<{ success: boolean; error?: string }> {
   // 1. GROUPS table (group_id, project_id, group_code, group_name, color, show_box, type)
   try {
-    await supabase.from('groups').delete().eq('project_id', projectId);
     if (project.groups && project.groups.length > 0) {
       const rows = project.groups.map(g => ({
         group_id: g.id,
@@ -321,17 +323,20 @@ export async function saveProjectArraysToSupabase(projectId: string, project: Pr
         show_box: g.showBox ?? true,
         type: g.type || 'activity',
       }));
-      const { error } = await supabase.from('groups').insert(rows);
-      if (error) console.error('❌ [Supabase] Error guardando groups:', error.message);
-      else console.log(`✅ [Supabase] Guardados ${rows.length} grupos.`);
+      const { error } = await supabase.from('groups').upsert(rows, { onConflict: 'group_id' });
+      if (error) {
+        console.error('❌ [Supabase] Error guardando groups:', error.message);
+        return { success: false, error: `Error en groups: ${error.message}` };
+      }
+      console.log(`✅ [Supabase] Guardados ${rows.length} grupos.`);
     }
-  } catch (err) {
+  } catch (err: any) {
     console.error('❌ [Supabase] Error en saveProjectArrays -> groups:', err);
+    return { success: false, error: err?.message || 'Error en groups' };
   }
 
   // 2. ACTIVITIES table (activity_id, project_id, group_id, activity_code, name, color, start_date, has_end_date, end_date, is_completed, completed_date, schedule_type, active_days, block_size, cluster_size, day_value, sub_activities_json)
   try {
-    await supabase.from('activities').delete().eq('project_id', projectId);
     if (project.activities && project.activities.length > 0) {
       const rows = project.activities.map(a => ({
         activity_id: a.id,
@@ -352,17 +357,20 @@ export async function saveProjectArraysToSupabase(projectId: string, project: Pr
         day_value: a.dayValue ?? null,
         sub_activities_json: a.subActivities || [],
       }));
-      const { error } = await supabase.from('activities').insert(rows);
-      if (error) console.error('❌ [Supabase] Error guardando activities:', error.message);
-      else console.log(`✅ [Supabase] Guardadas ${rows.length} actividades.`);
+      const { error } = await supabase.from('activities').upsert(rows, { onConflict: 'activity_id' });
+      if (error) {
+        console.error('❌ [Supabase] Error guardando activities:', error.message);
+        return { success: false, error: `Error en activities: ${error.message}` };
+      }
+      console.log(`✅ [Supabase] Guardadas ${rows.length} actividades.`);
     }
-  } catch (err) {
+  } catch (err: any) {
     console.error('❌ [Supabase] Error en saveProjectArrays -> activities:', err);
+    return { success: false, error: err?.message || 'Error en activities' };
   }
 
   // 3. RESOURCES table (resource_id, project_id, group_id, resource_code, name, has_cost, cost, has_duration_status, last_renewed_date, possession_status, availability_status, consumption_type, cycles_json, notes, resource_nature, order_index)
   try {
-    await supabase.from('resources').delete().eq('project_id', projectId);
     if (project.resources && project.resources.length > 0) {
       const rows = project.resources.map(r => ({
         resource_id: r.id,
@@ -382,17 +390,20 @@ export async function saveProjectArraysToSupabase(projectId: string, project: Pr
         resource_nature: r.resourceNature || 'expense',
         order_index: r.order ?? 0,
       }));
-      const { error } = await supabase.from('resources').insert(rows);
-      if (error) console.error('❌ [Supabase] Error guardando resources:', error.message);
-      else console.log(`✅ [Supabase] Guardados ${rows.length} recursos.`);
+      const { error } = await supabase.from('resources').upsert(rows, { onConflict: 'resource_id' });
+      if (error) {
+        console.error('❌ [Supabase] Error guardando resources:', error.message);
+        return { success: false, error: `Error en resources: ${error.message}` };
+      }
+      console.log(`✅ [Supabase] Guardados ${rows.length} recursos.`);
     }
-  } catch (err) {
+  } catch (err: any) {
     console.error('❌ [Supabase] Error en saveProjectArrays -> resources:', err);
+    return { success: false, error: err?.message || 'Error en resources' };
   }
 
   // 4. COMPLETION_LOGS table (log_key, project_id, activity_id, sub_activity_id, log_date, completed)
   try {
-    await supabase.from('completion_logs').delete().eq('project_id', projectId);
     const logEntries = Object.entries(project.completionLogs || {}).filter(([_, val]) => !!val);
     if (logEntries.length > 0) {
       const rows = logEntries.map(([key]) => {
@@ -406,17 +417,20 @@ export async function saveProjectArraysToSupabase(projectId: string, project: Pr
           completed: true,
         };
       });
-      const { error } = await supabase.from('completion_logs').insert(rows);
-      if (error) console.error('❌ [Supabase] Error guardando completion_logs:', error.message);
-      else console.log(`✅ [Supabase] Guardados ${rows.length} completion_logs.`);
+      const { error } = await supabase.from('completion_logs').upsert(rows, { onConflict: 'log_key' });
+      if (error) {
+        console.error('❌ [Supabase] Error guardando completion_logs:', error.message);
+        return { success: false, error: `Error en completion_logs: ${error.message}` };
+      }
+      console.log(`✅ [Supabase] Guardados ${rows.length} completion_logs.`);
     }
-  } catch (err) {
+  } catch (err: any) {
     console.error('❌ [Supabase] Error en saveProjectArrays -> completion_logs:', err);
+    return { success: false, error: err?.message || 'Error en completion_logs' };
   }
 
   // 5. RESOURCE_LOGS table (log_key, project_id, resource_id, log_date, cost, bought, renewed, state)
   try {
-    await supabase.from('resource_logs').delete().eq('project_id', projectId);
     const resLogEntries = Object.entries(project.resourceLogs || {});
     if (resLogEntries.length > 0) {
       const rows = resLogEntries.map(([key, val]) => {
@@ -432,17 +446,20 @@ export async function saveProjectArraysToSupabase(projectId: string, project: Pr
           state: val.state || null,
         };
       });
-      const { error } = await supabase.from('resource_logs').insert(rows);
-      if (error) console.error('❌ [Supabase] Error guardando resource_logs:', error.message);
-      else console.log(`✅ [Supabase] Guardados ${rows.length} resource_logs.`);
+      const { error } = await supabase.from('resource_logs').upsert(rows, { onConflict: 'log_key' });
+      if (error) {
+        console.error('❌ [Supabase] Error guardando resource_logs:', error.message);
+        return { success: false, error: `Error en resource_logs: ${error.message}` };
+      }
+      console.log(`✅ [Supabase] Guardados ${rows.length} resource_logs.`);
     }
-  } catch (err) {
+  } catch (err: any) {
     console.error('❌ [Supabase] Error en saveProjectArrays -> resource_logs:', err);
+    return { success: false, error: err?.message || 'Error en resource_logs' };
   }
 
   // 6. IDEAS table (idea_id, project_id, title, box_color, content_html, phrases_json, order_index, collapsed)
   try {
-    await supabase.from('ideas').delete().eq('project_id', projectId);
     if (project.ideas && project.ideas.length > 0) {
       const rows = project.ideas.map(idea => ({
         idea_id: idea.id,
@@ -454,33 +471,52 @@ export async function saveProjectArraysToSupabase(projectId: string, project: Pr
         order_index: idea.order ?? 0,
         collapsed: !!idea.collapsed,
       }));
-      const { error } = await supabase.from('ideas').insert(rows);
-      if (error) console.error('❌ [Supabase] Error guardando ideas:', error.message);
-      else console.log(`✅ [Supabase] Guardadas ${rows.length} ideas.`);
+      const { error } = await supabase.from('ideas').upsert(rows, { onConflict: 'idea_id' });
+      if (error) {
+        console.error('❌ [Supabase] Error guardando ideas:', error.message);
+        return { success: false, error: `Error en ideas: ${error.message}` };
+      }
+      console.log(`✅ [Supabase] Guardadas ${rows.length} ideas.`);
     }
-  } catch (err) {
+  } catch (err: any) {
     console.error('❌ [Supabase] Error en saveProjectArrays -> ideas:', err);
+    return { success: false, error: err?.message || 'Error en ideas' };
   }
+
+  return { success: true };
 }
 
 /**
- * Updates project_name in `projects` table and updates its arrays.
+ * Updates or inserts project in `projects` table (upsert) and updates all its child tables.
  */
 export async function updateProjectInSupabase(userId: string, project: Project): Promise<{ success: boolean; error?: string }> {
   try {
+    console.log('🔄 [Supabase] Guardando proyecto en tabla projects (upsert):', {
+      project_id: project.id,
+      user_id: userId,
+      project_name: project.name,
+    });
+
     const { error: projError } = await supabase
       .from('projects')
-      .update({
-        project_name: project.name,
-      })
-      .eq('project_id', project.id)
-      .eq('user_id', userId);
+      .upsert([
+        {
+          project_id: project.id,
+          user_id: userId,
+          project_name: project.name,
+        },
+      ], { onConflict: 'project_id' });
 
     if (projError) {
-      console.warn('⚠️ [Supabase] Aviso actualizando project_name:', projError.message);
+      console.error('❌ [Supabase] Error en updateProjectInSupabase (projects):', projError.message);
+      return { success: false, error: projError.message };
     }
 
-    await saveProjectArraysToSupabase(project.id, project);
+    const arraysRes = await saveProjectArraysToSupabase(project.id, project);
+    if (!arraysRes.success) {
+      return arraysRes;
+    }
+
     console.log('✅ [Supabase] Proyecto actualizado por completo:', project.id);
     return { success: true };
   } catch (err: any) {
@@ -494,12 +530,12 @@ export async function updateProjectInSupabase(userId: string, project: Project):
  */
 export async function deleteProjectFromSupabase(userId: string, projectId: string): Promise<{ success: boolean; error?: string }> {
   try {
-    await supabase.from('groups').delete().eq('project_id', projectId);
-    await supabase.from('activities').delete().eq('project_id', projectId);
-    await supabase.from('resources').delete().eq('project_id', projectId);
     await supabase.from('completion_logs').delete().eq('project_id', projectId);
     await supabase.from('resource_logs').delete().eq('project_id', projectId);
     await supabase.from('ideas').delete().eq('project_id', projectId);
+    await supabase.from('activities').delete().eq('project_id', projectId);
+    await supabase.from('resources').delete().eq('project_id', projectId);
+    await supabase.from('groups').delete().eq('project_id', projectId);
 
     const { error } = await supabase
       .from('projects')
@@ -524,7 +560,7 @@ export async function deleteProjectFromSupabase(userId: string, projectId: strin
 // GRANULAR / ATOMIC OPERATIONS IN SUPABASE
 // ==========================================
 
-export async function saveGroupToSupabase(projectId: string, group: ActivityGroup): Promise<void> {
+export async function saveGroupToSupabase(projectId: string, group: ActivityGroup): Promise<{ success: boolean; error?: string }> {
   try {
     const row = {
       group_id: group.id,
@@ -536,24 +572,34 @@ export async function saveGroupToSupabase(projectId: string, group: ActivityGrou
       type: group.type || 'activity',
     };
     const { error } = await supabase.from('groups').upsert([row], { onConflict: 'group_id' });
-    if (error) console.error('❌ [Supabase] Error upserting group:', error.message);
-    else console.log('✅ [Supabase] Grupo guardado exitosamente:', group.name, row);
-  } catch (err) {
+    if (error) {
+      console.error('❌ [Supabase] Error upserting group:', error.message);
+      return { success: false, error: error.message };
+    }
+    console.log('✅ [Supabase] Grupo guardado exitosamente:', group.name, row);
+    return { success: true };
+  } catch (err: any) {
     console.error('❌ [Supabase] Error en saveGroupToSupabase:', err);
+    return { success: false, error: err?.message || 'Error desconocido' };
   }
 }
 
-export async function removeGroupFromSupabase(projectId: string, groupId: string): Promise<void> {
+export async function removeGroupFromSupabase(projectId: string, groupId: string): Promise<{ success: boolean; error?: string }> {
   try {
     const { error } = await supabase.from('groups').delete().eq('group_id', groupId).eq('project_id', projectId);
-    if (error) console.error('❌ [Supabase] Error deleting group:', error.message);
-    else console.log('✅ [Supabase] Grupo eliminado exitosamente:', groupId);
-  } catch (err) {
+    if (error) {
+      console.error('❌ [Supabase] Error deleting group:', error.message);
+      return { success: false, error: error.message };
+    }
+    console.log('✅ [Supabase] Grupo eliminado exitosamente:', groupId);
+    return { success: true };
+  } catch (err: any) {
     console.error('❌ [Supabase] Error en removeGroupFromSupabase:', err);
+    return { success: false, error: err?.message || 'Error desconocido' };
   }
 }
 
-export async function saveActivityToSupabase(projectId: string, activity: Activity): Promise<void> {
+export async function saveActivityToSupabase(projectId: string, activity: Activity): Promise<{ success: boolean; error?: string }> {
   try {
     const row = {
       activity_id: activity.id,
@@ -575,24 +621,34 @@ export async function saveActivityToSupabase(projectId: string, activity: Activi
       sub_activities_json: activity.subActivities || [],
     };
     const { error } = await supabase.from('activities').upsert([row], { onConflict: 'activity_id' });
-    if (error) console.error('❌ [Supabase] Error upserting activity:', error.message);
-    else console.log('✅ [Supabase] Actividad guardada exitosamente:', activity.name, row);
-  } catch (err) {
+    if (error) {
+      console.error('❌ [Supabase] Error upserting activity:', error.message);
+      return { success: false, error: error.message };
+    }
+    console.log('✅ [Supabase] Actividad guardada exitosamente:', activity.name, row);
+    return { success: true };
+  } catch (err: any) {
     console.error('❌ [Supabase] Error en saveActivityToSupabase:', err);
+    return { success: false, error: err?.message || 'Error desconocido' };
   }
 }
 
-export async function removeActivityFromSupabase(projectId: string, activityId: string): Promise<void> {
+export async function removeActivityFromSupabase(projectId: string, activityId: string): Promise<{ success: boolean; error?: string }> {
   try {
     const { error } = await supabase.from('activities').delete().eq('activity_id', activityId).eq('project_id', projectId);
-    if (error) console.error('❌ [Supabase] Error deleting activity:', error.message);
-    else console.log('✅ [Supabase] Actividad eliminada exitosamente:', activityId);
-  } catch (err) {
+    if (error) {
+      console.error('❌ [Supabase] Error deleting activity:', error.message);
+      return { success: false, error: error.message };
+    }
+    console.log('✅ [Supabase] Actividad eliminada exitosamente:', activityId);
+    return { success: true };
+  } catch (err: any) {
     console.error('❌ [Supabase] Error en removeActivityFromSupabase:', err);
+    return { success: false, error: err?.message || 'Error desconocido' };
   }
 }
 
-export async function saveResourceToSupabase(projectId: string, resource: Resource): Promise<void> {
+export async function saveResourceToSupabase(projectId: string, resource: Resource): Promise<{ success: boolean; error?: string }> {
   try {
     const row = {
       resource_id: resource.id,
@@ -613,24 +669,34 @@ export async function saveResourceToSupabase(projectId: string, resource: Resour
       order_index: resource.order ?? 0,
     };
     const { error } = await supabase.from('resources').upsert([row], { onConflict: 'resource_id' });
-    if (error) console.error('❌ [Supabase] Error upserting resource:', error.message);
-    else console.log('✅ [Supabase] Recurso guardado exitosamente:', resource.name, row);
-  } catch (err) {
+    if (error) {
+      console.error('❌ [Supabase] Error upserting resource:', error.message);
+      return { success: false, error: error.message };
+    }
+    console.log('✅ [Supabase] Recurso guardado exitosamente:', resource.name, row);
+    return { success: true };
+  } catch (err: any) {
     console.error('❌ [Supabase] Error en saveResourceToSupabase:', err);
+    return { success: false, error: err?.message || 'Error desconocido' };
   }
 }
 
-export async function removeResourceFromSupabase(projectId: string, resourceId: string): Promise<void> {
+export async function removeResourceFromSupabase(projectId: string, resourceId: string): Promise<{ success: boolean; error?: string }> {
   try {
     const { error } = await supabase.from('resources').delete().eq('resource_id', resourceId).eq('project_id', projectId);
-    if (error) console.error('❌ [Supabase] Error deleting resource:', error.message);
-    else console.log('✅ [Supabase] Recurso eliminado exitosamente:', resourceId);
-  } catch (err) {
+    if (error) {
+      console.error('❌ [Supabase] Error deleting resource:', error.message);
+      return { success: false, error: error.message };
+    }
+    console.log('✅ [Supabase] Recurso eliminado exitosamente:', resourceId);
+    return { success: true };
+  } catch (err: any) {
     console.error('❌ [Supabase] Error en removeResourceFromSupabase:', err);
+    return { success: false, error: err?.message || 'Error desconocido' };
   }
 }
 
-export async function saveCompletionLogToSupabase(projectId: string, logKey: string, completed: boolean): Promise<void> {
+export async function saveCompletionLogToSupabase(projectId: string, logKey: string, completed: boolean): Promise<{ success: boolean; error?: string }> {
   try {
     if (completed) {
       const parsed = parseCompletionLogKey(logKey);
@@ -643,19 +709,28 @@ export async function saveCompletionLogToSupabase(projectId: string, logKey: str
         completed: true,
       };
       const { error } = await supabase.from('completion_logs').upsert([row], { onConflict: 'log_key' });
-      if (error) console.error('❌ [Supabase] Error upserting completion_log:', error.message);
-      else console.log('✅ [Supabase] Completion log guardado:', logKey);
+      if (error) {
+        console.error('❌ [Supabase] Error upserting completion_log:', error.message);
+        return { success: false, error: error.message };
+      }
+      console.log('✅ [Supabase] Completion log guardado:', logKey);
+      return { success: true };
     } else {
       const { error } = await supabase.from('completion_logs').delete().eq('log_key', logKey).eq('project_id', projectId);
-      if (error) console.error('❌ [Supabase] Error deleting completion_log:', error.message);
-      else console.log('✅ [Supabase] Completion log desmarcado (eliminado):', logKey);
+      if (error) {
+        console.error('❌ [Supabase] Error deleting completion_log:', error.message);
+        return { success: false, error: error.message };
+      }
+      console.log('✅ [Supabase] Completion log desmarcado (eliminado):', logKey);
+      return { success: true };
     }
-  } catch (err) {
+  } catch (err: any) {
     console.error('❌ [Supabase] Error en saveCompletionLogToSupabase:', err);
+    return { success: false, error: err?.message || 'Error desconocido' };
   }
 }
 
-export async function saveResourceLogToSupabase(projectId: string, logKey: string, log: DailyResourceLog): Promise<void> {
+export async function saveResourceLogToSupabase(projectId: string, logKey: string, log: DailyResourceLog): Promise<{ success: boolean; error?: string }> {
   try {
     const parsed = parseResourceLogKey(logKey);
     const row = {
@@ -669,24 +744,34 @@ export async function saveResourceLogToSupabase(projectId: string, logKey: strin
       state: log.state || null,
     };
     const { error } = await supabase.from('resource_logs').upsert([row], { onConflict: 'log_key' });
-    if (error) console.error('❌ [Supabase] Error upserting resource_log:', error.message);
-    else console.log('✅ [Supabase] Resource log guardado:', logKey, row);
-  } catch (err) {
+    if (error) {
+      console.error('❌ [Supabase] Error upserting resource_log:', error.message);
+      return { success: false, error: error.message };
+    }
+    console.log('✅ [Supabase] Resource log guardado:', logKey, row);
+    return { success: true };
+  } catch (err: any) {
     console.error('❌ [Supabase] Error en saveResourceLogToSupabase:', err);
+    return { success: false, error: err?.message || 'Error desconocido' };
   }
 }
 
-export async function removeResourceLogFromSupabase(projectId: string, logKey: string): Promise<void> {
+export async function removeResourceLogFromSupabase(projectId: string, logKey: string): Promise<{ success: boolean; error?: string }> {
   try {
     const { error } = await supabase.from('resource_logs').delete().eq('log_key', logKey).eq('project_id', projectId);
-    if (error) console.error('❌ [Supabase] Error deleting resource_log:', error.message);
-    else console.log('✅ [Supabase] Resource log eliminado:', logKey);
-  } catch (err) {
+    if (error) {
+      console.error('❌ [Supabase] Error deleting resource_log:', error.message);
+      return { success: false, error: error.message };
+    }
+    console.log('✅ [Supabase] Resource log eliminado:', logKey);
+    return { success: true };
+  } catch (err: any) {
     console.error('❌ [Supabase] Error en removeResourceLogFromSupabase:', err);
+    return { success: false, error: err?.message || 'Error desconocido' };
   }
 }
 
-export async function saveIdeaToSupabase(projectId: string, idea: Idea): Promise<void> {
+export async function saveIdeaToSupabase(projectId: string, idea: Idea): Promise<{ success: boolean; error?: string }> {
   try {
     const row = {
       idea_id: idea.id,
@@ -699,20 +784,30 @@ export async function saveIdeaToSupabase(projectId: string, idea: Idea): Promise
       collapsed: !!idea.collapsed,
     };
     const { error } = await supabase.from('ideas').upsert([row], { onConflict: 'idea_id' });
-    if (error) console.error('❌ [Supabase] Error upserting idea:', error.message);
-    else console.log('✅ [Supabase] Idea guardada exitosamente:', idea.title, row);
-  } catch (err) {
+    if (error) {
+      console.error('❌ [Supabase] Error upserting idea:', error.message);
+      return { success: false, error: error.message };
+    }
+    console.log('✅ [Supabase] Idea guardada exitosamente:', idea.title, row);
+    return { success: true };
+  } catch (err: any) {
     console.error('❌ [Supabase] Error en saveIdeaToSupabase:', err);
+    return { success: false, error: err?.message || 'Error desconocido' };
   }
 }
 
-export async function removeIdeaFromSupabase(projectId: string, ideaId: string): Promise<void> {
+export async function removeIdeaFromSupabase(projectId: string, ideaId: string): Promise<{ success: boolean; error?: string }> {
   try {
     const { error } = await supabase.from('ideas').delete().eq('idea_id', ideaId).eq('project_id', projectId);
-    if (error) console.error('❌ [Supabase] Error deleting idea:', error.message);
-    else console.log('✅ [Supabase] Idea eliminada exitosamente:', ideaId);
-  } catch (err) {
+    if (error) {
+      console.error('❌ [Supabase] Error deleting idea:', error.message);
+      return { success: false, error: error.message };
+    }
+    console.log('✅ [Supabase] Idea eliminada exitosamente:', ideaId);
+    return { success: true };
+  } catch (err: any) {
     console.error('❌ [Supabase] Error en removeIdeaFromSupabase:', err);
+    return { success: false, error: err?.message || 'Error desconocido' };
   }
 }
 
