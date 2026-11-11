@@ -275,6 +275,260 @@ export async function loadFullProjectFromSupabase(projectId: string, projectName
 }
 
 /**
+ * Migrates child data (groups, activities, resources, ideas, completionLogs, resourceLogs)
+ * to Supabase using a brand new unique project ID, mapping child IDs to avoid any foreign key
+ * or primary key collisions.
+ */
+export async function migrarDatosASupabase(
+  newProjectId: string,
+  userId: string,
+  datosImportados: any
+): Promise<Project> {
+  const now = new Date().toISOString();
+
+  // 1. Groups ID mapping
+  const groupIdMap = new Map<string, string>();
+  const rawGroups = Array.isArray(datosImportados.groups) ? datosImportados.groups : [];
+  const newGroups: ActivityGroup[] = rawGroups.map((g: any) => {
+    const newGid = 'grp_' + crypto.randomUUID().split('-')[0];
+    const oldId = g.id || g.group_id;
+    if (oldId) groupIdMap.set(oldId, newGid);
+    return {
+      id: newGid,
+      name: g.name || g.group_name || 'Grupo',
+      code: g.code || g.group_code || '',
+      color: g.color || '#3b82f6',
+      type: g.type || 'activity',
+      showBox: g.showBox ?? g.show_box ?? true,
+    };
+  });
+
+  // 2. Activities & Subactivities ID mapping
+  const actIdMap = new Map<string, string>();
+  const subIdMap = new Map<string, string>();
+  const rawActivities = Array.isArray(datosImportados.activities) ? datosImportados.activities : [];
+  const newActivities: Activity[] = rawActivities.map((a: any) => {
+    const newAid = 'act_' + crypto.randomUUID().split('-')[0];
+    const oldId = a.id || a.activity_id;
+    if (oldId) actIdMap.set(oldId, newAid);
+
+    let rawSubs = a.subActivities ?? a.sub_activities ?? a.sub_activities_json ?? [];
+    if (typeof rawSubs === 'string') {
+      try { rawSubs = JSON.parse(rawSubs); } catch { rawSubs = []; }
+    }
+    if (!Array.isArray(rawSubs)) rawSubs = [];
+
+    const mappedSub = rawSubs.map((sa: any) => {
+      const newSid = 'sub_' + crypto.randomUUID().split('-')[0];
+      const oldSid = sa.id || sa.sub_activity_id;
+      if (oldSid) subIdMap.set(oldSid, newSid);
+      return {
+        id: newSid,
+        name: sa.name || '',
+      };
+    });
+
+    const oldGroupId = a.groupId || a.group_id;
+    const mappedGroupId = oldGroupId ? (groupIdMap.get(oldGroupId) || null) : null;
+
+    let actDays = a.activeDays ?? a.active_days ?? [0, 1, 2, 3, 4, 5, 6];
+    if (typeof actDays === 'string') {
+      try { actDays = JSON.parse(actDays); } catch { actDays = [0, 1, 2, 3, 4, 5, 6]; }
+    }
+
+    return {
+      id: newAid,
+      code: a.code || a.activity_code || '',
+      groupId: mappedGroupId,
+      name: a.name || '',
+      color: a.color || '#3b82f6',
+      startDate: a.startDate || a.start_date || now.slice(0, 10),
+      hasEndDate: !!(a.hasEndDate ?? a.has_end_date),
+      endDate: a.endDate || a.end_date || null,
+      isCompleted: !!(a.isCompleted ?? a.is_completed),
+      completedDate: a.completedDate || a.completed_date || null,
+      scheduleType: a.scheduleType || a.schedule_type || 'daily',
+      activeDays: actDays,
+      blockSize: a.blockSize ?? a.block_size ?? undefined,
+      clusterSize: a.clusterSize ?? a.cluster_size ?? undefined,
+      dayValue: a.dayValue ?? a.day_value ?? undefined,
+      subActivities: mappedSub,
+      notes: a.notes || undefined,
+    };
+  });
+
+  // 3. Resources ID mapping
+  const resIdMap = new Map<string, string>();
+  const rawResources = Array.isArray(datosImportados.resources) ? datosImportados.resources : [];
+  const newResources: Resource[] = rawResources.map((r: any, idx: number) => {
+    const newRid = 'res_' + crypto.randomUUID().split('-')[0];
+    const oldId = r.id || r.resource_id;
+    if (oldId) resIdMap.set(oldId, newRid);
+
+    const oldGroupId = r.groupId || r.group_id;
+    const mappedGroupId = oldGroupId ? (groupIdMap.get(oldGroupId) || null) : null;
+
+    let cycles = r.cycles ?? r.cycles_json ?? [];
+    if (typeof cycles === 'string') {
+      try { cycles = JSON.parse(cycles); } catch { cycles = []; }
+    }
+    if (!Array.isArray(cycles)) cycles = [];
+
+    return {
+      id: newRid,
+      code: r.code || r.resource_code || '',
+      groupId: mappedGroupId,
+      name: r.name || '',
+      hasCost: !!(r.hasCost ?? r.has_cost),
+      cost: Number(r.cost ?? 0),
+      hasDurationStatus: !!(r.hasDurationStatus ?? r.has_duration_status),
+      lastRenewedDate: r.lastRenewedDate || r.last_renewed_date || null,
+      possessionStatus: r.possessionStatus || r.possession_status || 'se_tiene',
+      availabilityStatus: r.availabilityStatus || r.availability_status || 'disponible',
+      consumptionType: r.consumptionType || r.consumption_type || 'durable_seasonal',
+      cycles,
+      notes: r.notes || undefined,
+      resourceNature: r.resourceNature || r.resource_nature || 'expense',
+      order: r.order !== undefined ? Number(r.order) : (r.order_index !== undefined ? Number(r.order_index) : idx),
+      createdAt: r.createdAt || r.created_at || now,
+      updatedAt: r.updatedAt || r.updated_at || now,
+    };
+  });
+
+  // 4. Ideas ID mapping
+  const rawIdeas = Array.isArray(datosImportados.ideas) ? datosImportados.ideas : [];
+  const newIdeas: Idea[] = rawIdeas.map((i: any, idx: number) => {
+    let phrases = i.phrases ?? i.phrases_json ?? [];
+    if (typeof phrases === 'string') {
+      try { phrases = JSON.parse(phrases); } catch { phrases = []; }
+    }
+    if (!Array.isArray(phrases)) phrases = [];
+
+    return {
+      id: 'idea_' + crypto.randomUUID().split('-')[0],
+      title: i.title || 'Idea',
+      boxColor: i.boxColor || i.box_color || '#FFFFFF',
+      order: Number(i.order ?? i.order_index ?? idx),
+      collapsed: !!i.collapsed,
+      createdAt: i.createdAt || i.created_at || now,
+      updatedAt: i.updatedAt || i.updated_at || now,
+      phrases,
+      contentHtml: i.contentHtml || i.content_html || undefined,
+    };
+  });
+
+  // 5. Completion Logs (re-key with mapped IDs)
+  const newCompletionLogs: Record<string, boolean> = {};
+  const rawCompLogs = datosImportados.completionLogs || datosImportados.completion_logs || {};
+  if (typeof rawCompLogs === 'object') {
+    for (const [key, val] of Object.entries(rawCompLogs)) {
+      if (!val) continue;
+      let remappedKey = key;
+      for (const [oldAid, newAid] of actIdMap.entries()) {
+        if (key.startsWith(oldAid)) {
+          let remainder = key.slice(oldAid.length);
+          for (const [oldSid, newSid] of subIdMap.entries()) {
+            if (remainder.includes(oldSid)) {
+              remainder = remainder.replace(oldSid, newSid);
+              break;
+            }
+          }
+          remappedKey = `${newAid}${remainder}`;
+          break;
+        }
+      }
+      newCompletionLogs[remappedKey] = true;
+    }
+  }
+
+  // 6. Resource Logs (re-key with mapped resource IDs)
+  const newResourceLogs: Record<string, DailyResourceLog> = {};
+  const rawResLogs = datosImportados.resourceLogs || datosImportados.resource_logs || {};
+  if (typeof rawResLogs === 'object') {
+    for (const [key, val] of Object.entries(rawResLogs)) {
+      if (!val) continue;
+      let remappedKey = key;
+      for (const [oldRid, newRid] of resIdMap.entries()) {
+        if (key.startsWith(oldRid)) {
+          remappedKey = key.replace(oldRid, newRid);
+          break;
+        }
+      }
+      newResourceLogs[remappedKey] = val as DailyResourceLog;
+    }
+  }
+
+  const projectToSave: Project = {
+    id: newProjectId,
+    name: datosImportados.name || datosImportados.project_name || 'Proyecto Importado',
+    createdAt: datosImportados.createdAt || now,
+    updatedAt: now,
+    groups: newGroups,
+    activities: newActivities,
+    resources: newResources,
+    ideas: newIdeas,
+    completionLogs: newCompletionLogs,
+    resourceLogs: newResourceLogs,
+  };
+
+  const childRes = await saveProjectArraysToSupabase(newProjectId, projectToSave);
+  if (!childRes.success) {
+    throw new Error(childRes.error || 'Error al guardar elementos del proyecto en Supabase');
+  }
+
+  return projectToSave;
+}
+
+/**
+ * REGLA 2: CREACIÓN DE PROYECTOS (SIEMPRE NUEVOS Y ÚNICOS)
+ * Genera SIEMPRE un ID nuevo único 'proj_' + UUID, inserta en Supabase tabla `projects` con auth user_id,
+ * y si hay datos importados, los migra vinculándolos al nuevo project_id.
+ */
+export async function crearOImportarProyecto(
+  nombreProyecto: string,
+  datosImportados: any = null
+): Promise<{ project: Project; projectId: string }> {
+  // 1. Obtener usuario autenticado real
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.user) throw new Error("Debes iniciar sesión con Google");
+  
+  const currentUserId = session.user.id;
+  
+  // 2. Generar SIEMPRE un nuevo ID único para este proyecto
+  const newProjectId = 'proj_' + crypto.randomUUID().split('-')[0];
+  
+  // 3. Insertar proyecto en Supabase
+  const { error: projError } = await supabase.from('projects').insert({
+    project_id: newProjectId,
+    user_id: currentUserId,
+    project_name: nombreProyecto
+  });
+  if (projError) throw projError;
+
+  // 4. Si hay datos importados, migrarlos usando el NUEVO newProjectId
+  let finalProject: Project;
+  if (datosImportados) {
+    finalProject = await migrarDatosASupabase(newProjectId, currentUserId, datosImportados);
+    finalProject.name = nombreProyecto;
+  } else {
+    finalProject = {
+      id: newProjectId,
+      name: nombreProyecto,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      groups: [],
+      activities: [],
+      resources: [],
+      ideas: [],
+      completionLogs: {},
+      resourceLogs: {},
+    };
+  }
+  
+  return { project: finalProject, projectId: newProjectId };
+}
+
+/**
  * Inserts a new project record into Supabase `projects` (project_id, user_id, project_name)
  * and then saves all its children (groups, activities, resources, etc.).
  */
@@ -1037,13 +1291,6 @@ export async function importProjectFromTXTToSupabase(
   targetProjectId?: string
 ): Promise<{ success: boolean; project?: Project; error?: string }> {
   try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user || !user.id) {
-      console.error('❌ Debes iniciar sesión primero');
-      return { success: false, error: 'Debes iniciar sesión primero' };
-    }
-    console.log('User ID al crear proyecto:', user?.id);
-
     const startTag = '=== PLANMATRIX_RAW_DATA_START ===';
     const endTag = '=== PLANMATRIX_RAW_DATA_END ===';
 
@@ -1058,39 +1305,8 @@ export async function importProjectFromTXTToSupabase(
       throw new Error('El bloque de datos extraído no es un JSON válido.');
     }
 
-    const projectId = targetProjectId || rawProject.id || ('proj_' + Math.random().toString(36).substring(2, 9));
     const projectName = rawProject.name || 'Proyecto Importado';
-
-    const project: Project = {
-      id: projectId,
-      name: projectName,
-      createdAt: rawProject.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      groups: rawProject.groups || [],
-      activities: rawProject.activities || [],
-      resources: rawProject.resources || [],
-      ideas: rawProject.ideas || [],
-      completionLogs: rawProject.completionLogs || {},
-      resourceLogs: rawProject.resourceLogs || {},
-    };
-
-    const { error: projError } = await supabase.from('projects').upsert([
-      {
-        project_id: projectId,
-        user_id: user.id,
-        project_name: projectName,
-      },
-    ], { onConflict: 'project_id' });
-
-    if (projError) {
-      console.error('❌ [Supabase] Error al insertar en tabla projects:', projError.message);
-      return { success: false, error: projError.message };
-    }
-
-    const childRes = await saveProjectArraysToSupabase(projectId, project);
-    if (!childRes.success) {
-      return childRes;
-    }
+    const { project } = await crearOImportarProyecto(projectName, rawProject);
     return { success: true, project };
   } catch (err: any) {
     console.error('❌ [Supabase] Error importando TXT a Supabase:', err);

@@ -39,7 +39,9 @@ import {
   LayoutGrid,
   ClipboardList,
   Lightbulb,
-  Sparkles
+  Sparkles,
+  FolderPlus,
+  Plus
 } from 'lucide-react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from './lib/supabaseClient';
@@ -47,6 +49,7 @@ import { LoginScreen } from './components/LoginScreen';
 import { 
   loadUserProjectsFromSupabase, 
   loadFullProjectFromSupabase,
+  crearOImportarProyecto,
   insertProjectIntoSupabase, 
   updateProjectInSupabase, 
   deleteProjectFromSupabase,
@@ -217,6 +220,10 @@ export default function App() {
       return;
     }
 
+    // Al iniciar sesión con Google, limpiar cualquier indicador de invitado
+    localStorage.removeItem('ex56_is_guest');
+    setIsGuest(false);
+
     let isMounted = true;
     const fetchUserProjects = async () => {
       setIsLoadingProjects(true);
@@ -226,82 +233,35 @@ export default function App() {
           console.warn('⚠️ Debes iniciar sesión primero');
           return;
         }
-        console.log('User ID al crear proyecto:', authUser?.id);
+        console.log('User ID al consultar proyectos:', authUser?.id);
 
         console.log('🔄 [Supabase] Consultando tabla projects para user_id:', authUser.id);
         const remoteProjects = await loadUserProjectsFromSupabase(authUser.id);
         if (!isMounted) return;
 
-        // If user just logged in from guest mode, clean guest flag
-        const wasGuest = localStorage.getItem('ex56_is_guest') === 'true';
-        if (wasGuest) {
-          localStorage.removeItem('ex56_is_guest');
-          setIsGuest(false);
-        }
-
         if (remoteProjects && remoteProjects.length > 0) {
           console.log(`✅ [Supabase] Se cargaron ${remoteProjects.length} proyectos desde la nube.`);
           setProjects(remoteProjects);
-          saveProjectsToStorage(remoteProjects);
-          const activeId = getActiveProjectId();
-          const found = remoteProjects.find(p => p.id === activeId) || remoteProjects[0];
+          const found = remoteProjects[0];
           setCurrentProject(found);
           setActiveProjectId(found.id);
           setSupabaseError(null);
           setSaveToast('☁️ Datos cargados desde Supabase');
           setTimeout(() => setSaveToast(null), 2500);
         } else {
-          // If no projects in Supabase yet, migrate existing local projects to Supabase
-          const localStored = getStoredProjects();
-          if (localStored.length > 0) {
-            console.log('📦 [Supabase] Migrando proyectos locales de este equipo hacia Supabase...');
-            setProjects(localStored);
-            const activeId = getActiveProjectId();
-            const found = localStored.find(p => p.id === activeId) || localStored[0];
-            setCurrentProject(found);
-            setActiveProjectId(found.id);
-
-            // Auto-migrate local projects to Supabase tables
-            let firstError: string | null = null;
-            for (const proj of localStored) {
-              const res = await insertProjectIntoSupabase(authUser.id, proj);
-              if (!res.success && !firstError) {
-                firstError = res.error || 'Error al guardar en Supabase';
-              }
-            }
-
-            if (firstError) {
-              setSupabaseError(firstError);
-              setSaveToast('⚠️ Aviso Supabase: ' + firstError);
-            } else {
-              setSupabaseError(null);
-              setSaveToast('¡Sesión iniciada! Tus proyectos se han sincronizado con Supabase.');
-            }
-            setTimeout(() => setSaveToast(null), 3500);
-          } else {
-            console.log('🌱 [Supabase] Creando proyecto inicial en Supabase...');
-            const sample = createSampleProject();
-            setProjects([sample]);
-            setCurrentProject(sample);
-            setActiveProjectId(sample.id);
-            const res = await insertProjectIntoSupabase(authUser.id, sample);
-            if (!res.success) {
-              setSupabaseError(res.error || 'Error al crear proyecto en Supabase');
-            } else {
-              setSupabaseError(null);
-            }
-          }
+          // REGLA 1: Ignorar por completo cualquier dato en localStorage.
+          // El dashboard debe aparecer completamente vacío si el usuario no tiene proyectos en Supabase.
+          console.log('ℹ️ [Supabase] El usuario no tiene proyectos en Supabase. Dashboard vacío.');
+          setProjects([]);
+          setCurrentProject(null);
+          setSupabaseError(null);
         }
       } catch (err: any) {
         console.error('❌ Error al cargar proyectos de Supabase:', err);
         setSupabaseError(err?.message || 'Error al conectar con Supabase');
-        const localStored = getStoredProjects();
-        if (localStored.length > 0 && isMounted) {
-          setProjects(localStored);
-          const activeId = getActiveProjectId();
-          const found = localStored.find(p => p.id === activeId) || localStored[0];
-          setCurrentProject(found);
-          setActiveProjectId(found.id);
+        if (isMounted) {
+          setProjects([]);
+          setCurrentProject(null);
         }
       } finally {
         if (isMounted) {
@@ -377,11 +337,15 @@ export default function App() {
     setUndoStack(prev => prev.slice(0, prev.length - 1));
     setRedoStack(prev => [...prev.slice(-25), JSON.parse(JSON.stringify(currentProject))]);
     setCurrentProject(previous);
-    saveProject(previous);
+    if (!user || isGuest) {
+      saveProject(previous);
+    } else {
+      updateProjectInSupabase(user.id, previous);
+    }
     setHasUnsavedChanges(true);
     setSaveToast('Acción deshecha con éxito');
     setTimeout(() => setSaveToast(null), 2000);
-  }, [undoStack, currentProject]);
+  }, [undoStack, currentProject, user, isGuest]);
 
   // Redo (Avanzar acción)
   const handleRedo = useCallback(() => {
@@ -390,11 +354,15 @@ export default function App() {
     setRedoStack(prev => prev.slice(0, prev.length - 1));
     setUndoStack(prev => [...prev.slice(-25), JSON.parse(JSON.stringify(currentProject))]);
     setCurrentProject(next);
-    saveProject(next);
+    if (!user || isGuest) {
+      saveProject(next);
+    } else {
+      updateProjectInSupabase(user.id, next);
+    }
     setHasUnsavedChanges(true);
     setSaveToast('Acción reanudada con éxito');
     setTimeout(() => setSaveToast(null), 2000);
-  }, [redoStack, currentProject]);
+  }, [redoStack, currentProject, user, isGuest]);
 
   // Keyboard shortcut Ctrl+Z (Undo) and Ctrl+Y / Ctrl+Shift+Z (Redo)
   useEffect(() => {
@@ -476,41 +444,42 @@ export default function App() {
     }
   };
 
-  // Crear Proyecto: Inserta en Supabase tabla `projects` con user_id (solo si autenticado)
+  // REGLA 2: Crear Proyecto (SIEMPRE nuevos y únicos con crearOImportarProyecto)
   const handleCreateProject = async (name: string) => {
-    const newProj = createNewProject(name);
-    setCurrentProject(newProj);
-    setActiveProjectId(newProj.id);
-    setHasUnsavedChanges(false);
-    setSelectedActivityIds([]);
-    setSelectedGroupIds([]);
-    setUndoStack([]);
-    setRedoStack([]);
     setIsProjectModalOpen(false);
 
-    // Insert into Supabase table projects with current user_id
     if (user && !isGuest) {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser || !authUser.id) {
-        setSaveToast('Debes iniciar sesión primero');
-        setTimeout(() => setSaveToast(null), 3000);
-        return;
-      }
-      console.log('User ID al crear proyecto:', authUser?.id);
-
       setSaveToast('Creando en Supabase...');
-      const res = await insertProjectIntoSupabase(authUser.id, newProj);
-      if (res.success) {
+      try {
+        const { project: createdProj, projectId: newId } = await crearOImportarProyecto(name);
+        setProjects(prev => [...prev.filter(p => p.id !== newId), createdProj]);
+        setCurrentProject(createdProj);
+        setActiveProjectId(newId);
+        setHasUnsavedChanges(false);
+        setSelectedActivityIds([]);
+        setSelectedGroupIds([]);
+        setUndoStack([]);
+        setRedoStack([]);
+        setSupabaseError(null);
         setSaveToast('¡Proyecto creado y sincronizado en Supabase!');
-        setProjects(prev => [...prev.filter(p => p.id !== newProj.id), newProj]);
-      } else {
-        console.error('Error creando proyecto en Supabase:', res.error);
-        setSaveToast('Aviso Supabase: ' + (res.error || 'Error'));
+      } catch (err: any) {
+        console.error('Error creando proyecto en Supabase:', err);
+        setSupabaseError(err?.message || 'Error al crear proyecto');
+        setSaveToast('⚠️ Error: ' + (err?.message || 'Error'));
       }
       setTimeout(() => setSaveToast(null), 3000);
     } else {
+      const newProj = createNewProject(name);
+      setCurrentProject(newProj);
+      setActiveProjectId(newProj.id);
+      setHasUnsavedChanges(false);
+      setSelectedActivityIds([]);
+      setSelectedGroupIds([]);
+      setUndoStack([]);
+      setRedoStack([]);
+
       const updated = getStoredProjects();
-      setProjects(updated);
+      setProjects([...updated.filter(p => p.id !== newProj.id), newProj]);
       saveProject(newProj);
       setSaveToast('Proyecto creado (guardado localmente)');
       setTimeout(() => setSaveToast(null), 2500);
@@ -595,18 +564,42 @@ export default function App() {
     setTimeout(() => setSaveToast(null), 2000);
   };
 
-  const handleLoadSampleProject = () => {
-    const sample = createSampleProject();
-    const updated = getStoredProjects();
-    setProjects(updated);
-    setCurrentProject(sample);
-    setActiveProjectId(sample.id);
-    setHasUnsavedChanges(false);
-    setSelectedActivityIds([]);
-    setSelectedGroupIds([]);
-    setUndoStack([]);
-    setRedoStack([]);
+  const handleLoadSampleProject = async () => {
     setIsProjectModalOpen(false);
+    const sample = createSampleProject();
+
+    if (user && !isGuest) {
+      setSaveToast('Cargando ejemplo en Supabase...');
+      try {
+        const { project: createdProj, projectId: newId } = await crearOImportarProyecto('Ejemplo Demostrativo', sample);
+        setProjects(prev => [...prev.filter(p => p.id !== newId), createdProj]);
+        setCurrentProject(createdProj);
+        setActiveProjectId(newId);
+        setHasUnsavedChanges(false);
+        setSelectedActivityIds([]);
+        setSelectedGroupIds([]);
+        setUndoStack([]);
+        setRedoStack([]);
+        setSaveToast('¡Ejemplo creado en Supabase!');
+      } catch (err: any) {
+        console.error('Error al cargar ejemplo en Supabase:', err);
+        setSaveToast('⚠️ Error: ' + (err?.message || 'Error'));
+      }
+      setTimeout(() => setSaveToast(null), 3000);
+    } else {
+      const updated = getStoredProjects();
+      setProjects([...updated.filter(p => p.id !== sample.id), sample]);
+      saveProject(sample);
+      setCurrentProject(sample);
+      setActiveProjectId(sample.id);
+      setHasUnsavedChanges(false);
+      setSelectedActivityIds([]);
+      setSelectedGroupIds([]);
+      setUndoStack([]);
+      setRedoStack([]);
+      setSaveToast('Ejemplo demostrativo cargado (local)');
+      setTimeout(() => setSaveToast(null), 2500);
+    }
   };
 
   // Activity Matrix Toggle Handlers with day_clusters support
@@ -1516,7 +1509,11 @@ export default function App() {
     const updatedProject = { ...currentProject, activities: list, updatedAt: new Date().toISOString() };
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+    if (!user || isGuest) {
+      saveProject(updatedProject);
+    } else {
+      saveProjectArraysToSupabase(updatedProject.id, updatedProject);
+    }
   };
 
   const handleMoveActivitiesToStart = () => {
@@ -1527,7 +1524,11 @@ export default function App() {
     const updatedProject = { ...currentProject, activities: [...selected, ...unselected], updatedAt: new Date().toISOString() };
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+    if (!user || isGuest) {
+      saveProject(updatedProject);
+    } else {
+      saveProjectArraysToSupabase(updatedProject.id, updatedProject);
+    }
   };
 
   const handleMoveActivitiesDown = () => {
@@ -1544,7 +1545,11 @@ export default function App() {
     const updatedProject = { ...currentProject, activities: list, updatedAt: new Date().toISOString() };
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+    if (!user || isGuest) {
+      saveProject(updatedProject);
+    } else {
+      saveProjectArraysToSupabase(updatedProject.id, updatedProject);
+    }
   };
 
   const handleMoveActivitiesToEnd = () => {
@@ -1555,7 +1560,11 @@ export default function App() {
     const updatedProject = { ...currentProject, activities: [...unselected, ...selected], updatedAt: new Date().toISOString() };
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+    if (!user || isGuest) {
+      saveProject(updatedProject);
+    } else {
+      saveProjectArraysToSupabase(updatedProject.id, updatedProject);
+    }
   };
 
   // Group Reordering actions
@@ -1573,7 +1582,11 @@ export default function App() {
     const updatedProject = { ...currentProject, groups: list, updatedAt: new Date().toISOString() };
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+    if (!user || isGuest) {
+      saveProject(updatedProject);
+    } else {
+      saveProjectArraysToSupabase(updatedProject.id, updatedProject);
+    }
   };
 
   const handleMoveGroupsToStart = () => {
@@ -1584,7 +1597,11 @@ export default function App() {
     const updatedProject = { ...currentProject, groups: [...selected, ...unselected], updatedAt: new Date().toISOString() };
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+    if (!user || isGuest) {
+      saveProject(updatedProject);
+    } else {
+      saveProjectArraysToSupabase(updatedProject.id, updatedProject);
+    }
   };
 
   const handleMoveGroupsDown = () => {
@@ -1601,7 +1618,11 @@ export default function App() {
     const updatedProject = { ...currentProject, groups: list, updatedAt: new Date().toISOString() };
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+    if (!user || isGuest) {
+      saveProject(updatedProject);
+    } else {
+      saveProjectArraysToSupabase(updatedProject.id, updatedProject);
+    }
   };
 
   const handleMoveGroupsToEnd = () => {
@@ -1612,7 +1633,11 @@ export default function App() {
     const updatedProject = { ...currentProject, groups: [...unselected, ...selected], updatedAt: new Date().toISOString() };
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+    if (!user || isGuest) {
+      saveProject(updatedProject);
+    } else {
+      saveProjectArraysToSupabase(updatedProject.id, updatedProject);
+    }
   };
 
   const handleDeleteSelectedGroups = () => {
@@ -1644,46 +1669,50 @@ export default function App() {
     }
   };
 
-  // Import Handler with Supabase multi-table synchronization
+  // REGLA 2: Import Handler con Supabase (SIEMPRE IDs nuevos y únicos con crearOImportarProyecto)
   const handleImportProject = async (imported: Project, overwrite: boolean, rawTxt?: string) => {
     pushUndoSnapshot();
-    const finalProject: Project = (overwrite && currentProject) 
-      ? { ...imported, id: currentProject.id, name: currentProject.name } 
-      : imported;
-
-    saveProject(finalProject);
-    setCurrentProject(finalProject);
-    setActiveProjectId(finalProject.id);
-
-    const freshList = getStoredProjects();
-    setProjects(freshList);
-    setHasUnsavedChanges(false);
-    setSelectedActivityIds([]);
 
     if (user && !isGuest) {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser || !authUser.id) {
-        setSaveToast('Debes iniciar sesión primero');
-        setTimeout(() => setSaveToast(null), 3000);
-        return;
-      }
-      console.log('User ID al crear proyecto:', authUser?.id);
-
-      setSaveToast('Sincronizando con Supabase...');
-      if (rawTxt && rawTxt.includes('=== PLANMATRIX_RAW_DATA_START ===')) {
-        const res = await importProjectFromTXTToSupabase(rawTxt, authUser.id, finalProject.id);
-        if (res.success && res.project) {
-          saveProject(res.project);
-          setCurrentProject(res.project);
+      setSaveToast('Importando a Supabase...');
+      try {
+        let rawData: any = imported;
+        if (rawTxt && rawTxt.includes('=== PLANMATRIX_RAW_DATA_START ===')) {
+          const jsonStr = rawTxt.split('=== PLANMATRIX_RAW_DATA_START ===')[1].split('=== PLANMATRIX_RAW_DATA_END ===')[0].trim();
+          rawData = JSON.parse(jsonStr);
         }
-      } else {
-        await updateProjectInSupabase(authUser.id, finalProject);
+        const projName = rawData.name || imported.name || 'Proyecto Importado';
+        const { project: importedProj, projectId: newId } = await crearOImportarProyecto(projName, rawData);
+
+        setProjects(prev => [...prev.filter(p => p.id !== newId), importedProj]);
+        setCurrentProject(importedProj);
+        setActiveProjectId(newId);
+        setHasUnsavedChanges(false);
+        setSelectedActivityIds([]);
+        setUndoStack([]);
+        setRedoStack([]);
+        setSaveToast('¡Proyecto importado y sincronizado con Supabase!');
+      } catch (err: any) {
+        console.error('Error importando a Supabase:', err);
+        setSaveToast('⚠️ Error al importar: ' + (err?.message || 'Error'));
       }
-      setSaveToast('¡Proyecto importado y guardado en Supabase!');
+      setTimeout(() => setSaveToast(null), 3000);
     } else {
-      setSaveToast('¡Proyecto importado con éxito!');
+      const finalProject: Project = (overwrite && currentProject) 
+        ? { ...imported, id: currentProject.id, name: currentProject.name } 
+        : imported;
+
+      saveProject(finalProject);
+      setCurrentProject(finalProject);
+      setActiveProjectId(finalProject.id);
+
+      const freshList = getStoredProjects();
+      setProjects(freshList);
+      setHasUnsavedChanges(false);
+      setSelectedActivityIds([]);
+      setSaveToast('¡Proyecto importado con éxito (guardado localmente)!');
+      setTimeout(() => setSaveToast(null), 3000);
     }
-    setTimeout(() => setSaveToast(null), 3000);
   };
 
   // Date Navigation Steppers: Avanza o retrocede exactamente la cantidad de días del periodo seleccionado (7, 9, 14, 30 días, etc.)
@@ -1862,7 +1891,9 @@ export default function App() {
     };
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+    if (!user || isGuest) {
+      saveProject(updatedProject);
+    }
     setSaveToast('Misiones diarias actualizadas con éxito');
     setTimeout(() => setSaveToast(null), 2000);
   };
@@ -1975,23 +2006,47 @@ export default function App() {
         onSave={handleSaveProject}
         onOpenProjects={() => setIsProjectModalOpen(true)}
         onOpenNewActivity={() => {
+          if (!currentProject) {
+            setIsProjectModalOpen(true);
+            return;
+          }
           setEditingActivity(null);
           setIsActivityModalOpen(true);
         }}
         onOpenNewResource={() => {
+          if (!currentProject) {
+            setIsProjectModalOpen(true);
+            return;
+          }
           setEditingResource(null);
           setIsResourceModalOpen(true);
         }}
         onOpenImportExport={() => setIsImportExportOpen(true)}
         onOpenGroups={() => {
+          if (!currentProject) {
+            setIsProjectModalOpen(true);
+            return;
+          }
           setEditingGroup(null);
           setIsGroupModalOpen(true);
         }}
-        onOpenDailyMissions={() => setIsDailyMissionsOpen(true)}
+        onOpenDailyMissions={() => {
+          if (!currentProject) {
+            setIsProjectModalOpen(true);
+            return;
+          }
+          setIsDailyMissionsOpen(true);
+        }}
         dailyPendingCount={dailyPendingCount}
         activeTab={activeTab}
         onSelectTab={setActiveTab}
-        onOpenNewIdea={handleOpenNewIdea}
+        onOpenNewIdea={() => {
+          if (!currentProject) {
+            setIsProjectModalOpen(true);
+            return;
+          }
+          handleOpenNewIdea();
+        }}
         userEmail={user?.email}
         userAvatar={user?.user_metadata?.avatar_url || user?.user_metadata?.picture}
         onSignOut={handleSignOut}
@@ -2022,180 +2077,214 @@ export default function App() {
       {/* Main Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-2 sm:p-6 space-y-3 sm:space-y-4 max-w-full overflow-x-hidden">
         
-        {/* Project Header Info */}
-        {currentProject && (
-          <div className="flex items-center justify-between gap-3 pb-1">
-            <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
-                Directriz
-              </h1>
-              <p className="text-xs text-slate-500 mt-0.5 sm:mt-1 flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                <span className="font-semibold text-slate-700">{currentProject.name}</span>
-                <span aria-hidden="true">·</span>
-                <span>{activeActivitiesCount} actividades activas</span>
-                <span aria-hidden="true">·</span>
-                <span>{currentProject.resources?.length || 0} registros</span>
-                <span aria-hidden="true">·</span>
-                <span>{currentProject.ideas?.length || 0} ideas</span>
-                <span aria-hidden="true">·</span>
-                <span>{currentProject.groups.length} grupos</span>
-                <span aria-hidden="true">·</span>
-                <span>Hoy: {formatFriendlyDate(todayStr)}</span>
-              </p>
+        {!currentProject ? (
+          /* Empty Dashboard State when user has no active project (e.g. fresh Google login without projects in Supabase) */
+          <div className="flex flex-col items-center justify-center py-16 px-4 text-center max-w-lg mx-auto bg-white rounded-2xl border border-slate-200 shadow-xs my-6">
+            <div className="w-14 h-14 rounded-2xl bg-amber-100 border border-amber-200 flex items-center justify-center text-amber-800 mb-4 shadow-xs">
+              <FolderPlus className="w-7 h-7" />
+            </div>
+            <h3 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
+              {user && !isGuest ? 'Tu espacio en la nube está listo' : 'No tienes ningún proyecto activo'}
+            </h3>
+            <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+              {user && !isGuest
+                ? 'No se encontraron proyectos guardados en tu cuenta de Google. Crea tu primer proyecto o importa uno para comenzar.'
+                : 'Crea tu primer proyecto o importa un archivo para comenzar.'}
+            </p>
+            <div className="flex flex-col sm:flex-row items-center gap-3 mt-6 w-full sm:w-auto">
+              <button
+                type="button"
+                onClick={() => setIsProjectModalOpen(true)}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 text-xs font-bold text-slate-950 bg-amber-400 hover:bg-amber-500 rounded-xl transition-all shadow-xs cursor-pointer active:scale-95"
+              >
+                <Plus className="w-4 h-4 stroke-[2.5]" />
+                <span>Crear Primer Proyecto</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsImportExportOpen(true)}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl transition-colors cursor-pointer"
+              >
+                <span>Importar Proyecto (.txt)</span>
+              </button>
             </div>
           </div>
-        )}
-
-        {/* Tab Selector: Guía | Registro | Ideas */}
-        <div className="flex items-center gap-2 border-b border-slate-200">
-          <button
-            type="button"
-            onClick={() => setActiveTab('guia')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer ${
-              activeTab === 'guia'
-                ? 'border-amber-500 text-slate-950 font-extrabold bg-amber-50/50 rounded-t-xl'
-                : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-t-xl'
-            }`}
-          >
-            <LayoutGrid className="w-4 h-4 text-amber-600" />
-            <span>Guía</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('registro')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer ${
-              activeTab === 'registro'
-                ? 'border-cyan-500 text-slate-950 font-extrabold bg-cyan-50/50 rounded-t-xl'
-                : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-t-xl'
-            }`}
-          >
-            <ClipboardList className="w-4 h-4 text-cyan-600" />
-            <span>Registro</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab('ideas')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer ${
-              activeTab === 'ideas'
-                ? 'border-emerald-500 text-slate-950 font-extrabold bg-emerald-50/50 rounded-t-xl'
-                : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-t-xl'
-            }`}
-          >
-            <Lightbulb className="w-4 h-4 text-emerald-600" />
-            <span>Ideas</span>
-          </button>
-        </div>
-
-        {/* TAB 1: GUÍA (MatrixGrid or Empty State) */}
-        {activeTab === 'guia' && (
+        ) : (
           <>
-            {!currentProject || currentProject.activities.length === 0 ? (
-              <EmptyState
-                onAddActivity={() => {
-                  setEditingActivity(null);
-                  setIsActivityModalOpen(true);
-                }}
-                onLoadSample={handleLoadSampleProject}
-              />
-            ) : (
-              <MatrixGrid
-                days={days}
-                activities={currentProject.activities}
-                groups={currentProject.groups}
-                completionLogs={currentProject.completionLogs}
-                onToggleCell={handleToggleCell}
-                onToggleParentDay={handleToggleParentDay}
-                onToggleGroupDay={handleToggleGroupDay}
-                onEditActivity={(act) => {
-                  setEditingActivity(act);
-                  setIsActivityModalOpen(true);
-                }}
-                onDeleteActivity={handleDeleteActivity}
-                onAddSubActivityQuick={handleAddSubActivityQuick}
-                onEditGroup={(group) => {
-                  setEditingGroup(group);
-                  setIsGroupModalOpen(true);
-                }}
-                onDeleteGroup={handleDeleteGroup}
-                selectedActivityIds={selectedActivityIds}
-                onToggleSelectActivity={handleToggleSelectActivity}
-                onToggleSelectAll={handleToggleSelectAll}
-                selectedGroupIds={selectedGroupIds}
-                onToggleSelectGroup={handleToggleSelectGroup}
-                onPrevDateWindow={handlePrevDateWindow}
-                onNextDateWindow={handleNextDateWindow}
-                onTodayWindow={handleTodayWindow}
-                onOpenTimeSettings={() => setIsTimeSettingsOpen(true)}
-                activeFilterGroup={activeFilterGroup}
-                onSetFilterGroup={setActiveFilterGroup}
-                onToggleActivityCompletion={handleToggleActivityCompletion}
-                onCompleteActiveSlot={handleCompleteActiveSlot}
-                onToggleSubInActiveSlot={handleToggleSubInActiveSlot}
-              />
+            {/* Project Header Info */}
+            <div className="flex items-center justify-between gap-3 pb-1">
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+                  Directriz
+                </h1>
+                <p className="text-xs text-slate-500 mt-0.5 sm:mt-1 flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                  <span className="font-semibold text-slate-700">{currentProject.name}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>{activeActivitiesCount} actividades activas</span>
+                  <span aria-hidden="true">·</span>
+                  <span>{currentProject.resources?.length || 0} registros</span>
+                  <span aria-hidden="true">·</span>
+                  <span>{currentProject.ideas?.length || 0} ideas</span>
+                  <span aria-hidden="true">·</span>
+                  <span>{currentProject.groups.length} grupos</span>
+                  <span aria-hidden="true">·</span>
+                  <span>Hoy: {formatFriendlyDate(todayStr)}</span>
+                </p>
+              </div>
+            </div>
+
+            {/* Tab Selector: Guía | Registro | Ideas */}
+            <div className="flex items-center gap-2 border-b border-slate-200">
+              <button
+                type="button"
+                onClick={() => setActiveTab('guia')}
+                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer ${
+                  activeTab === 'guia'
+                    ? 'border-amber-500 text-slate-950 font-extrabold bg-amber-50/50 rounded-t-xl'
+                    : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-t-xl'
+                }`}
+              >
+                <LayoutGrid className="w-4 h-4 text-amber-600" />
+                <span>Guía</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('registro')}
+                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer ${
+                  activeTab === 'registro'
+                    ? 'border-cyan-500 text-slate-950 font-extrabold bg-cyan-50/50 rounded-t-xl'
+                    : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-t-xl'
+                }`}
+              >
+                <ClipboardList className="w-4 h-4 text-cyan-600" />
+                <span>Registro</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setActiveTab('ideas')}
+                className={`flex items-center gap-2 px-4 py-2.5 text-xs sm:text-sm font-bold border-b-2 transition-all cursor-pointer ${
+                  activeTab === 'ideas'
+                    ? 'border-emerald-500 text-slate-950 font-extrabold bg-emerald-50/50 rounded-t-xl'
+                    : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded-t-xl'
+                }`}
+              >
+                <Lightbulb className="w-4 h-4 text-emerald-600" />
+                <span>Ideas</span>
+              </button>
+            </div>
+
+            {/* TAB 1: GUÍA (MatrixGrid or Empty State) */}
+            {activeTab === 'guia' && (
+              <>
+                {currentProject.activities.length === 0 ? (
+                  <EmptyState
+                    onAddActivity={() => {
+                      setEditingActivity(null);
+                      setIsActivityModalOpen(true);
+                    }}
+                    onLoadSample={handleLoadSampleProject}
+                  />
+                ) : (
+                  <MatrixGrid
+                    days={days}
+                    activities={currentProject.activities}
+                    groups={currentProject.groups}
+                    completionLogs={currentProject.completionLogs}
+                    onToggleCell={handleToggleCell}
+                    onToggleParentDay={handleToggleParentDay}
+                    onToggleGroupDay={handleToggleGroupDay}
+                    onEditActivity={(act) => {
+                      setEditingActivity(act);
+                      setIsActivityModalOpen(true);
+                    }}
+                    onDeleteActivity={handleDeleteActivity}
+                    onAddSubActivityQuick={handleAddSubActivityQuick}
+                    onEditGroup={(group) => {
+                      setEditingGroup(group);
+                      setIsGroupModalOpen(true);
+                    }}
+                    onDeleteGroup={handleDeleteGroup}
+                    selectedActivityIds={selectedActivityIds}
+                    onToggleSelectActivity={handleToggleSelectActivity}
+                    onToggleSelectAll={handleToggleSelectAll}
+                    selectedGroupIds={selectedGroupIds}
+                    onToggleSelectGroup={handleToggleSelectGroup}
+                    onPrevDateWindow={handlePrevDateWindow}
+                    onNextDateWindow={handleNextDateWindow}
+                    onTodayWindow={handleTodayWindow}
+                    onOpenTimeSettings={() => setIsTimeSettingsOpen(true)}
+                    activeFilterGroup={activeFilterGroup}
+                    onSetFilterGroup={setActiveFilterGroup}
+                    onToggleActivityCompletion={handleToggleActivityCompletion}
+                    onCompleteActiveSlot={handleCompleteActiveSlot}
+                    onToggleSubInActiveSlot={handleToggleSubInActiveSlot}
+                  />
+                )}
+              </>
+            )}
+
+            {/* TAB 2: REGISTRO (RegistroMatrixGrid + Historial de actividades pasadas) */}
+            {activeTab === 'registro' && (
+              <div className="space-y-4">
+                {/* Matriz de Calendario de Registros y Gastos Diarios */}
+                <RegistroMatrixGrid
+                  days={days}
+                  resources={currentProject.resources || []}
+                  groups={currentProject.groups || []}
+                  resourceLogs={currentProject.resourceLogs || {}}
+                  onToggleResourceBought={handleToggleResourceBought}
+                  onUpdateResourceDayCost={handleUpdateResourceDayCost}
+                  onUpdateResourceStatus={handleUpdateResourceStatus}
+                  onRenewResource={handleRenewResource}
+                  onSetDayResourceState={handleSetDayResourceState}
+                  onMoveResource={handleMoveResource}
+                  onAddResource={() => {
+                    setEditingResource(null);
+                    setIsResourceModalOpen(true);
+                  }}
+                  onEditResource={(res) => {
+                    setEditingResource(res);
+                    setIsResourceModalOpen(true);
+                  }}
+                  onDeleteResource={handleDeleteResource}
+                  onPrevDateWindow={handlePrevDateWindow}
+                  onNextDateWindow={handleNextDateWindow}
+                  onTodayWindow={handleTodayWindow}
+                  onOpenTimeSettings={() => setIsTimeSettingsOpen(true)}
+                  activeFilterGroup={activeFilterGroup}
+                  onSetFilterGroup={setActiveFilterGroup}
+                />
+
+                {/* Historial de actividades pasadas con paginación estilo Google Ads */}
+                <HistoryActivitiesBox
+                  activities={currentProject.activities || []}
+                  groups={currentProject.groups || []}
+                  onToggleActivityCompletion={handleToggleActivityCompletion}
+                  onEditActivity={(act) => {
+                    setEditingActivity(act);
+                    setIsActivityModalOpen(true);
+                  }}
+                  onDeleteActivity={handleDeleteActivity}
+                />
+              </div>
+            )}
+
+            {/* TAB 3: IDEAS */}
+            {activeTab === 'ideas' && (
+              <div className="space-y-4">
+                <IdeasBox
+                  ideas={currentProject.ideas || []}
+                  onAddIdea={handleAddIdea}
+                  onUpdateIdea={handleUpdateIdea}
+                  onDeleteIdea={handleDeleteIdea}
+                  onReorderIdeas={handleReorderIdeas}
+                  onToggleCollapse={handleToggleIdeaCollapse}
+                />
+              </div>
             )}
           </>
-        )}
-
-        {/* TAB 2: REGISTRO (RegistroMatrixGrid + Historial de actividades pasadas) */}
-        {activeTab === 'registro' && currentProject && (
-          <div className="space-y-4">
-            {/* Matriz de Calendario de Registros y Gastos Diarios */}
-            <RegistroMatrixGrid
-              days={days}
-              resources={currentProject.resources || []}
-              groups={currentProject.groups || []}
-              resourceLogs={currentProject.resourceLogs || {}}
-              onToggleResourceBought={handleToggleResourceBought}
-              onUpdateResourceDayCost={handleUpdateResourceDayCost}
-              onUpdateResourceStatus={handleUpdateResourceStatus}
-              onRenewResource={handleRenewResource}
-              onSetDayResourceState={handleSetDayResourceState}
-              onMoveResource={handleMoveResource}
-              onAddResource={() => {
-                setEditingResource(null);
-                setIsResourceModalOpen(true);
-              }}
-              onEditResource={(res) => {
-                setEditingResource(res);
-                setIsResourceModalOpen(true);
-              }}
-              onDeleteResource={handleDeleteResource}
-              onPrevDateWindow={handlePrevDateWindow}
-              onNextDateWindow={handleNextDateWindow}
-              onTodayWindow={handleTodayWindow}
-              onOpenTimeSettings={() => setIsTimeSettingsOpen(true)}
-              activeFilterGroup={activeFilterGroup}
-              onSetFilterGroup={setActiveFilterGroup}
-            />
-
-            {/* Historial de actividades pasadas con paginación estilo Google Ads */}
-            <HistoryActivitiesBox
-              activities={currentProject.activities || []}
-              groups={currentProject.groups || []}
-              onToggleActivityCompletion={handleToggleActivityCompletion}
-              onEditActivity={(act) => {
-                setEditingActivity(act);
-                setIsActivityModalOpen(true);
-              }}
-              onDeleteActivity={handleDeleteActivity}
-            />
-          </div>
-        )}
-
-        {/* TAB 3: IDEAS */}
-        {activeTab === 'ideas' && currentProject && (
-          <div className="space-y-4">
-            <IdeasBox
-              ideas={currentProject.ideas || []}
-              onAddIdea={handleAddIdea}
-              onUpdateIdea={handleUpdateIdea}
-              onDeleteIdea={handleDeleteIdea}
-              onReorderIdeas={handleReorderIdeas}
-              onToggleCollapse={handleToggleIdeaCollapse}
-            />
-          </div>
         )}
 
       </main>
