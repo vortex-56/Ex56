@@ -15,20 +15,23 @@ export interface SupabaseProjectRow {
  */
 export async function loadUserProjectsFromSupabase(userId: string): Promise<Project[]> {
   try {
+    console.log('🔄 [Supabase] Consultando tabla projects para user_id:', userId);
     const { data: projectRows, error } = await supabase
       .from('projects')
       .select('project_id, user_id, project_name')
       .eq('user_id', userId);
 
     if (error) {
-      console.warn('Advertencia al consultar la tabla projects en Supabase:', error.message);
+      console.error('❌ [Supabase] Error al consultar la tabla projects:', error.message);
       return [];
     }
 
     if (!projectRows || projectRows.length === 0) {
+      console.log('ℹ️ [Supabase] No se encontraron proyectos para este usuario.');
       return [];
     }
 
+    console.log(`✅ [Supabase] Se encontraron ${projectRows.length} proyecto(s). Hidratando datos...`);
     const projects: Project[] = [];
 
     // Hydrate each project from its respective tables
@@ -40,9 +43,10 @@ export async function loadUserProjectsFromSupabase(userId: string): Promise<Proj
       projects.push(project);
     }
 
+    console.log('✅ [Supabase] Proyectos cargados con éxito desde la base de datos:', projects);
     return projects;
   } catch (err) {
-    console.error('Error cargando proyectos desde Supabase:', err);
+    console.error('❌ [Supabase] Error cargando proyectos desde Supabase:', err);
     return [];
   }
 }
@@ -54,100 +58,129 @@ export async function loadUserProjectsFromSupabase(userId: string): Promise<Proj
 export async function loadFullProjectFromSupabase(projectId: string, projectName: string): Promise<Project> {
   const now = new Date().toISOString();
 
-  // 1. Groups
+  // 1. Groups (group_id, project_id, group_code, group_name, color, show_box, type)
   let groups: ActivityGroup[] = [];
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('groups')
       .select('*')
       .eq('project_id', projectId);
-    if (data) {
+    if (error) {
+      console.warn('⚠️ [Supabase] Aviso al cargar groups:', error.message);
+    } else if (data) {
       groups = data.map((g: any) => ({
-        id: g.id || g.group_id,
-        name: g.name || '',
-        code: g.code || '',
+        id: g.group_id || g.id,
+        name: g.group_name || g.name || '',
+        code: g.group_code || g.code || '',
         color: g.color || '#3b82f6',
         type: g.type || 'activity',
         showBox: g.show_box ?? g.showBox ?? true,
       }));
     }
   } catch (e) {
-    console.warn('Error loading groups for project', projectId, e);
+    console.warn('⚠️ [Supabase] Error loading groups for project', projectId, e);
   }
 
-  // 2. Activities
+  // 2. Activities (activity_id, project_id, group_id, activity_code, name, color, start_date, has_end_date, end_date, is_completed, completed_date, schedule_type, active_days, block_size, cluster_size, day_value, sub_activities_json)
   let activities: Activity[] = [];
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('activities')
       .select('*')
       .eq('project_id', projectId);
-    if (data) {
-      activities = data.map((a: any) => ({
-        id: a.id || a.activity_id,
-        code: a.code || '',
-        groupId: a.group_id || a.groupId || '',
-        name: a.name || '',
-        color: a.color || '#3b82f6',
-        startDate: a.start_date || a.startDate || now.slice(0, 10),
-        hasEndDate: !!(a.has_end_date ?? a.hasEndDate),
-        endDate: a.end_date || a.endDate || null,
-        isCompleted: !!(a.is_completed ?? a.isCompleted),
-        completedDate: a.completed_date || a.completedDate || null,
-        scheduleType: a.schedule_type || a.scheduleType || 'daily',
-        activeDays: a.active_days || a.activeDays || [0, 1, 2, 3, 4, 5, 6],
-        blockSize: a.block_size ?? a.blockSize ?? undefined,
-        clusterSize: a.cluster_size ?? a.clusterSize ?? undefined,
-        dayValue: a.day_value ?? a.dayValue ?? undefined,
-        subActivities: a.sub_activities || a.subActivities || [],
-        notes: a.notes || undefined,
-      }));
+    if (error) {
+      console.warn('⚠️ [Supabase] Aviso al cargar activities:', error.message);
+    } else if (data) {
+      activities = data.map((a: any) => {
+        let subActs = a.sub_activities_json ?? a.sub_activities ?? a.subActivities ?? [];
+        if (typeof subActs === 'string') {
+          try { subActs = JSON.parse(subActs); } catch { subActs = []; }
+        }
+        if (!Array.isArray(subActs)) subActs = [];
+
+        let actDays = a.active_days ?? a.activeDays ?? [0, 1, 2, 3, 4, 5, 6];
+        if (typeof actDays === 'string') {
+          try { actDays = JSON.parse(actDays); } catch { actDays = [0, 1, 2, 3, 4, 5, 6]; }
+        }
+
+        return {
+          id: a.activity_id || a.id,
+          code: a.activity_code || a.code || '',
+          groupId: a.group_id || a.groupId || '',
+          name: a.name || '',
+          color: a.color || '#3b82f6',
+          startDate: a.start_date || a.startDate || now.slice(0, 10),
+          hasEndDate: !!(a.has_end_date ?? a.hasEndDate),
+          endDate: a.end_date || a.endDate || null,
+          isCompleted: !!(a.is_completed ?? a.isCompleted),
+          completedDate: a.completed_date || a.completedDate || null,
+          scheduleType: a.schedule_type || a.scheduleType || 'daily',
+          activeDays: actDays,
+          blockSize: a.block_size ?? a.blockSize ?? undefined,
+          clusterSize: a.cluster_size ?? a.clusterSize ?? undefined,
+          dayValue: a.day_value ?? a.dayValue ?? undefined,
+          subActivities: subActs,
+          notes: a.notes || undefined,
+        };
+      });
     }
   } catch (e) {
-    console.warn('Error loading activities for project', projectId, e);
+    console.warn('⚠️ [Supabase] Error loading activities for project', projectId, e);
   }
 
-  // 3. Resources
+  // 3. Resources (resource_id, project_id, group_id, resource_code, name, has_cost, cost, has_duration_status, last_renewed_date, possession_status, availability_status, consumption_type, cycles_json, notes, resource_nature, order_index)
   let resources: Resource[] = [];
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('resources')
       .select('*')
       .eq('project_id', projectId);
-    if (data) {
-      resources = data.map((r: any) => ({
-        id: r.id || r.resource_id,
-        code: r.code || '',
-        groupId: r.group_id || r.groupId || '',
-        name: r.name || '',
-        hasCost: !!(r.has_cost ?? r.hasCost),
-        cost: Number(r.cost ?? 0),
-        hasDurationStatus: !!(r.has_duration_status ?? r.hasDurationStatus),
-        lastRenewedDate: r.last_renewed_date || r.lastRenewedDate || null,
-        possessionStatus: r.possession_status || r.possessionStatus || 'se_tiene',
-        availabilityStatus: r.availability_status || r.availabilityStatus || 'disponible',
-        consumptionType: r.consumption_type || r.consumptionType || 'durable_seasonal',
-        cycles: r.cycles || [],
-        notes: r.notes || undefined,
-        resourceNature: r.resource_nature || r.resourceNature || 'expense',
-        order: r.order !== undefined ? Number(r.order) : undefined,
-        createdAt: r.created_at || r.createdAt || now,
-        updatedAt: r.updated_at || r.updatedAt || now,
-      }));
+    if (error) {
+      console.warn('⚠️ [Supabase] Aviso al cargar resources:', error.message);
+    } else if (data) {
+      resources = data.map((r: any) => {
+        let cycles = r.cycles_json ?? r.cycles ?? [];
+        if (typeof cycles === 'string') {
+          try { cycles = JSON.parse(cycles); } catch { cycles = []; }
+        }
+        if (!Array.isArray(cycles)) cycles = [];
+
+        return {
+          id: r.resource_id || r.id,
+          code: r.resource_code || r.code || '',
+          groupId: r.group_id || r.groupId || '',
+          name: r.name || '',
+          hasCost: !!(r.has_cost ?? r.hasCost),
+          cost: Number(r.cost ?? 0),
+          hasDurationStatus: !!(r.has_duration_status ?? r.hasDurationStatus),
+          lastRenewedDate: r.last_renewed_date || r.lastRenewedDate || null,
+          possessionStatus: r.possession_status || r.possessionStatus || 'se_tiene',
+          availabilityStatus: r.availability_status || r.availabilityStatus || 'disponible',
+          consumptionType: r.consumption_type || r.consumptionType || 'durable_seasonal',
+          cycles,
+          notes: r.notes || undefined,
+          resourceNature: r.resource_nature || r.resourceNature || 'expense',
+          order: r.order_index !== undefined ? Number(r.order_index) : (r.order !== undefined ? Number(r.order) : undefined),
+          createdAt: r.created_at || r.createdAt || now,
+          updatedAt: r.updated_at || r.updatedAt || now,
+        };
+      });
     }
   } catch (e) {
-    console.warn('Error loading resources for project', projectId, e);
+    console.warn('⚠️ [Supabase] Error loading resources for project', projectId, e);
   }
 
-  // 4. Completion Logs
+  // 4. Completion Logs (log_key, project_id, activity_id, sub_activity_id, log_date, completed)
   const completionLogs: Record<string, boolean> = {};
   try {
-    let res = await supabase.from('completion_logs').select('*').eq('project_id', projectId);
-    if (res.error) {
-      res = await supabase.from('completionlogs').select('*').eq('project_id', projectId);
-    }
-    if (res.data) {
-      for (const row of res.data) {
+    const { data, error } = await supabase
+      .from('completion_logs')
+      .select('*')
+      .eq('project_id', projectId);
+    if (error) {
+      console.warn('⚠️ [Supabase] Aviso al cargar completion_logs:', error.message);
+    } else if (data) {
+      for (const row of data) {
         const key = row.log_key || row.key;
         if (key && (row.completed || row.is_completed || row.completed === undefined)) {
           completionLogs[key] = true;
@@ -155,18 +188,20 @@ export async function loadFullProjectFromSupabase(projectId: string, projectName
       }
     }
   } catch (e) {
-    console.warn('Error loading completion logs for project', projectId, e);
+    console.warn('⚠️ [Supabase] Error loading completion logs for project', projectId, e);
   }
 
-  // 5. Resource Logs
+  // 5. Resource Logs (log_key, project_id, resource_id, log_date, cost, bought, renewed, state)
   const resourceLogs: Record<string, DailyResourceLog> = {};
   try {
-    let res = await supabase.from('resource_logs').select('*').eq('project_id', projectId);
-    if (res.error) {
-      res = await supabase.from('resourcelogs').select('*').eq('project_id', projectId);
-    }
-    if (res.data) {
-      for (const row of res.data) {
+    const { data, error } = await supabase
+      .from('resource_logs')
+      .select('*')
+      .eq('project_id', projectId);
+    if (error) {
+      console.warn('⚠️ [Supabase] Aviso al cargar resource_logs:', error.message);
+    } else if (data) {
+      for (const row of data) {
         const key = row.log_key || row.key;
         if (key) {
           resourceLogs[key] = {
@@ -179,32 +214,42 @@ export async function loadFullProjectFromSupabase(projectId: string, projectName
       }
     }
   } catch (e) {
-    console.warn('Error loading resource logs for project', projectId, e);
+    console.warn('⚠️ [Supabase] Error loading resource logs for project', projectId, e);
   }
 
-  // 6. Ideas
+  // 6. Ideas (idea_id, project_id, title, box_color, content_html, phrases_json, order_index, collapsed)
   let ideas: Idea[] = [];
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('ideas')
       .select('*')
       .eq('project_id', projectId)
-      .order('order', { ascending: true });
-    if (data) {
-      ideas = data.map((idea: any) => ({
-        id: idea.id || idea.idea_id,
-        title: idea.title || 'Idea',
-        boxColor: idea.box_color || idea.boxColor || '#FFFFFF',
-        order: Number(idea.order ?? 0),
-        collapsed: !!idea.collapsed,
-        createdAt: idea.created_at || idea.createdAt || now,
-        updatedAt: idea.updated_at || idea.updatedAt || now,
-        phrases: idea.phrases || [],
-        contentHtml: idea.content_html || idea.contentHtml || undefined,
-      }));
+      .order('order_index', { ascending: true });
+    if (error) {
+      console.warn('⚠️ [Supabase] Aviso al cargar ideas:', error.message);
+    } else if (data) {
+      ideas = data.map((idea: any) => {
+        let phrases = idea.phrases_json ?? idea.phrases ?? [];
+        if (typeof phrases === 'string') {
+          try { phrases = JSON.parse(phrases); } catch { phrases = []; }
+        }
+        if (!Array.isArray(phrases)) phrases = [];
+
+        return {
+          id: idea.idea_id || idea.id,
+          title: idea.title || 'Idea',
+          boxColor: idea.box_color || idea.boxColor || '#FFFFFF',
+          order: Number(idea.order_index ?? idea.order ?? 0),
+          collapsed: !!idea.collapsed,
+          createdAt: idea.created_at || idea.createdAt || now,
+          updatedAt: idea.updated_at || idea.updatedAt || now,
+          phrases,
+          contentHtml: idea.content_html || idea.contentHtml || undefined,
+        };
+      });
     }
   } catch (e) {
-    console.warn('Error loading ideas for project', projectId, e);
+    console.warn('⚠️ [Supabase] Error loading ideas for project', projectId, e);
   }
 
   return {
@@ -222,47 +267,77 @@ export async function loadFullProjectFromSupabase(projectId: string, projectName
 }
 
 /**
- * Inserts / saves all child arrays (groups, activities, resources, completion_logs, resource_logs, ideas)
+ * Inserts a new project record into Supabase `projects` (project_id, user_id, project_name)
+ * and then saves all its children (groups, activities, resources, etc.).
+ */
+export async function insertProjectIntoSupabase(userId: string, project: Project): Promise<{ success: boolean; error?: string }> {
+  try {
+    console.log('🔄 [Supabase] Insertando proyecto en tabla projects:', {
+      project_id: project.id,
+      user_id: userId,
+      project_name: project.name,
+    });
+
+    const { error: projError } = await supabase
+      .from('projects')
+      .upsert([
+        {
+          project_id: project.id,
+          user_id: userId,
+          project_name: project.name,
+        },
+      ], { onConflict: 'project_id' });
+
+    if (projError) {
+      console.error('❌ [Supabase] Error insertando en la tabla projects:', projError.message);
+      return { success: false, error: projError.message };
+    }
+
+    console.log('✅ [Supabase] Proyecto creado en tabla projects correctamente.');
+    await saveProjectArraysToSupabase(project.id, project);
+
+    return { success: true };
+  } catch (err: any) {
+    console.error('❌ [Supabase] Error al crear proyecto en Supabase:', err);
+    return { success: false, error: err?.message || 'Error desconocido' };
+  }
+}
+
+/**
+ * Saves all child arrays (groups, activities, resources, completion_logs, resource_logs, ideas)
  * into their respective Supabase tables using `project_id`.
  */
 export async function saveProjectArraysToSupabase(projectId: string, project: Project): Promise<void> {
-  // 1. GROUPS table
+  // 1. GROUPS table (group_id, project_id, group_code, group_name, color, show_box, type)
   try {
     await supabase.from('groups').delete().eq('project_id', projectId);
     if (project.groups && project.groups.length > 0) {
       const rows = project.groups.map(g => ({
+        group_id: g.id,
         project_id: projectId,
-        id: g.id,
-        name: g.name,
-        code: g.code || '',
+        group_code: g.code || '',
+        group_name: g.name,
         color: g.color || '#3b82f6',
-        type: g.type || 'activity',
         show_box: g.showBox ?? true,
+        type: g.type || 'activity',
       }));
       const { error } = await supabase.from('groups').insert(rows);
-      if (error) {
-        // Fallback for showBox column name
-        const fallbackRows = rows.map(r => ({ ...r, showBox: r.show_box }));
-        try {
-          await supabase.from('groups').insert(fallbackRows);
-        } catch {
-          // ignore fallback error
-        }
-      }
+      if (error) console.error('❌ [Supabase] Error guardando groups:', error.message);
+      else console.log(`✅ [Supabase] Guardados ${rows.length} grupos.`);
     }
   } catch (err) {
-    console.warn('Error saving groups to Supabase:', err);
+    console.error('❌ [Supabase] Error en saveProjectArrays -> groups:', err);
   }
 
-  // 2. ACTIVITIES table
+  // 2. ACTIVITIES table (activity_id, project_id, group_id, activity_code, name, color, start_date, has_end_date, end_date, is_completed, completed_date, schedule_type, active_days, block_size, cluster_size, day_value, sub_activities_json)
   try {
     await supabase.from('activities').delete().eq('project_id', projectId);
     if (project.activities && project.activities.length > 0) {
       const rows = project.activities.map(a => ({
+        activity_id: a.id,
         project_id: projectId,
-        id: a.id,
         group_id: a.groupId || null,
-        code: a.code || '',
+        activity_code: a.code || '',
         name: a.name,
         color: a.color || '#3b82f6',
         start_date: a.startDate,
@@ -275,24 +350,25 @@ export async function saveProjectArraysToSupabase(projectId: string, project: Pr
         block_size: a.blockSize ?? null,
         cluster_size: a.clusterSize ?? null,
         day_value: a.dayValue ?? null,
-        sub_activities: a.subActivities || [],
-        notes: a.notes || null,
+        sub_activities_json: a.subActivities || [],
       }));
-      await supabase.from('activities').insert(rows);
+      const { error } = await supabase.from('activities').insert(rows);
+      if (error) console.error('❌ [Supabase] Error guardando activities:', error.message);
+      else console.log(`✅ [Supabase] Guardadas ${rows.length} actividades.`);
     }
   } catch (err) {
-    console.warn('Error saving activities to Supabase:', err);
+    console.error('❌ [Supabase] Error en saveProjectArrays -> activities:', err);
   }
 
-  // 3. RESOURCES table
+  // 3. RESOURCES table (resource_id, project_id, group_id, resource_code, name, has_cost, cost, has_duration_status, last_renewed_date, possession_status, availability_status, consumption_type, cycles_json, notes, resource_nature, order_index)
   try {
     await supabase.from('resources').delete().eq('project_id', projectId);
     if (project.resources && project.resources.length > 0) {
       const rows = project.resources.map(r => ({
+        resource_id: r.id,
         project_id: projectId,
-        id: r.id,
         group_id: r.groupId || null,
-        code: r.code || '',
+        resource_code: r.code || '',
         name: r.name,
         has_cost: !!r.hasCost,
         cost: r.cost ?? 0,
@@ -301,149 +377,97 @@ export async function saveProjectArraysToSupabase(projectId: string, project: Pr
         possession_status: r.possessionStatus || 'se_tiene',
         availability_status: r.availabilityStatus || 'disponible',
         consumption_type: r.consumptionType || 'durable_seasonal',
-        cycles: r.cycles || [],
+        cycles_json: r.cycles || [],
         notes: r.notes || null,
         resource_nature: r.resourceNature || 'expense',
-        order: r.order ?? 0,
+        order_index: r.order ?? 0,
       }));
-      await supabase.from('resources').insert(rows);
+      const { error } = await supabase.from('resources').insert(rows);
+      if (error) console.error('❌ [Supabase] Error guardando resources:', error.message);
+      else console.log(`✅ [Supabase] Guardados ${rows.length} recursos.`);
     }
   } catch (err) {
-    console.warn('Error saving resources to Supabase:', err);
+    console.error('❌ [Supabase] Error en saveProjectArrays -> resources:', err);
   }
 
-  // 4. COMPLETION_LOGS table
+  // 4. COMPLETION_LOGS table (log_key, project_id, activity_id, sub_activity_id, log_date, completed)
   try {
-    let tableName = 'completion_logs';
-    let delRes = await supabase.from(tableName).delete().eq('project_id', projectId);
-    if (delRes.error) {
-      tableName = 'completionlogs';
-      await supabase.from(tableName).delete().eq('project_id', projectId);
-    }
-
+    await supabase.from('completion_logs').delete().eq('project_id', projectId);
     const logEntries = Object.entries(project.completionLogs || {}).filter(([_, val]) => !!val);
     if (logEntries.length > 0) {
-      const rows = logEntries.map(([key]) => ({
-        project_id: projectId,
-        log_key: key,
-        completed: true,
-      }));
-      const { error } = await supabase.from(tableName).insert(rows);
-      if (error) {
-        // Fallback for column 'key'
-        const altRows = rows.map(r => ({ project_id: r.project_id, key: r.log_key, completed: true }));
-        try {
-          await supabase.from(tableName).insert(altRows);
-        } catch {
-          // ignore fallback error
-        }
-      }
+      const rows = logEntries.map(([key]) => {
+        const parsed = parseCompletionLogKey(key);
+        return {
+          log_key: key,
+          project_id: projectId,
+          activity_id: parsed.activityId,
+          sub_activity_id: parsed.subActivityId,
+          log_date: parsed.dateStr,
+          completed: true,
+        };
+      });
+      const { error } = await supabase.from('completion_logs').insert(rows);
+      if (error) console.error('❌ [Supabase] Error guardando completion_logs:', error.message);
+      else console.log(`✅ [Supabase] Guardados ${rows.length} completion_logs.`);
     }
   } catch (err) {
-    console.warn('Error saving completion logs to Supabase:', err);
+    console.error('❌ [Supabase] Error en saveProjectArrays -> completion_logs:', err);
   }
 
-  // 5. RESOURCE_LOGS table
+  // 5. RESOURCE_LOGS table (log_key, project_id, resource_id, log_date, cost, bought, renewed, state)
   try {
-    let tableName = 'resource_logs';
-    let delRes = await supabase.from(tableName).delete().eq('project_id', projectId);
-    if (delRes.error) {
-      tableName = 'resourcelogs';
-      await supabase.from(tableName).delete().eq('project_id', projectId);
-    }
-
+    await supabase.from('resource_logs').delete().eq('project_id', projectId);
     const resLogEntries = Object.entries(project.resourceLogs || {});
     if (resLogEntries.length > 0) {
-      const rows = resLogEntries.map(([key, val]) => ({
-        project_id: projectId,
-        log_key: key,
-        cost: val.cost ?? 0,
-        bought: !!val.bought,
-        renewed: !!val.renewed,
-        state: val.state || null,
-      }));
-      const { error } = await supabase.from(tableName).insert(rows);
-      if (error) {
-        // Fallback for column 'key'
-        const altRows = rows.map(r => ({
-          project_id: r.project_id,
-          key: r.log_key,
-          cost: r.cost,
-          bought: r.bought,
-          renewed: r.renewed,
-          state: r.state,
-        }));
-        try {
-          await supabase.from(tableName).insert(altRows);
-        } catch {
-          // ignore fallback error
-        }
-      }
+      const rows = resLogEntries.map(([key, val]) => {
+        const parsed = parseResourceLogKey(key);
+        return {
+          log_key: key,
+          project_id: projectId,
+          resource_id: parsed.resourceId,
+          log_date: parsed.dateStr,
+          cost: val.cost ?? 0,
+          bought: !!val.bought,
+          renewed: !!val.renewed,
+          state: val.state || null,
+        };
+      });
+      const { error } = await supabase.from('resource_logs').insert(rows);
+      if (error) console.error('❌ [Supabase] Error guardando resource_logs:', error.message);
+      else console.log(`✅ [Supabase] Guardados ${rows.length} resource_logs.`);
     }
   } catch (err) {
-    console.warn('Error saving resource logs to Supabase:', err);
+    console.error('❌ [Supabase] Error en saveProjectArrays -> resource_logs:', err);
   }
 
-  // 6. IDEAS table
+  // 6. IDEAS table (idea_id, project_id, title, box_color, content_html, phrases_json, order_index, collapsed)
   try {
     await supabase.from('ideas').delete().eq('project_id', projectId);
     if (project.ideas && project.ideas.length > 0) {
       const rows = project.ideas.map(idea => ({
+        idea_id: idea.id,
         project_id: projectId,
-        id: idea.id,
         title: idea.title,
         box_color: idea.boxColor || '#FFFFFF',
-        order: idea.order ?? 0,
-        collapsed: !!idea.collapsed,
-        phrases: idea.phrases || [],
         content_html: idea.contentHtml || null,
+        phrases_json: idea.phrases || [],
+        order_index: idea.order ?? 0,
+        collapsed: !!idea.collapsed,
       }));
-      await supabase.from('ideas').insert(rows);
+      const { error } = await supabase.from('ideas').insert(rows);
+      if (error) console.error('❌ [Supabase] Error guardando ideas:', error.message);
+      else console.log(`✅ [Supabase] Guardadas ${rows.length} ideas.`);
     }
   } catch (err) {
-    console.warn('Error saving ideas to Supabase:', err);
+    console.error('❌ [Supabase] Error en saveProjectArrays -> ideas:', err);
   }
 }
 
 /**
- * Inserts a new project into the Supabase `projects` table (project_id, user_id, project_name ONLY - NO data column)
- * and then inserts its related arrays into their respective tables.
- */
-export async function insertProjectIntoSupabase(userId: string, project: Project): Promise<{ success: boolean; error?: string }> {
-  try {
-    // 1. Insert into `projects` table with ONLY: project_id, user_id, project_name
-    const { error: projError } = await supabase
-      .from('projects')
-      .upsert([
-        {
-          project_id: project.id,
-          user_id: userId,
-          project_name: project.name,
-        },
-      ], { onConflict: 'project_id' });
-
-    if (projError) {
-      console.error('Error insertando en la tabla projects:', projError.message);
-      return { success: false, error: projError.message };
-    }
-
-    // 2. Insert related data into groups, activities, resources, etc. tables
-    await saveProjectArraysToSupabase(project.id, project);
-
-    return { success: true };
-  } catch (err: any) {
-    console.error('Error al crear proyecto en Supabase:', err);
-    return { success: false, error: err?.message || 'Error desconocido' };
-  }
-}
-
-/**
- * Updates an existing project in the Supabase `projects` table (project_name)
- * and updates its arrays in their respective tables.
+ * Updates project_name in `projects` table and updates its arrays.
  */
 export async function updateProjectInSupabase(userId: string, project: Project): Promise<{ success: boolean; error?: string }> {
   try {
-    // 1. Update project_name in `projects` table
     const { error: projError } = await supabase
       .from('projects')
       .update({
@@ -453,15 +477,14 @@ export async function updateProjectInSupabase(userId: string, project: Project):
       .eq('user_id', userId);
 
     if (projError) {
-      console.warn('Error actualizando project_name en projects:', projError.message);
+      console.warn('⚠️ [Supabase] Aviso actualizando project_name:', projError.message);
     }
 
-    // 2. Sync groups, activities, resources, completion_logs, resource_logs, ideas
     await saveProjectArraysToSupabase(project.id, project);
-
+    console.log('✅ [Supabase] Proyecto actualizado por completo:', project.id);
     return { success: true };
   } catch (err: any) {
-    console.error('Error actualizando proyecto en Supabase:', err);
+    console.error('❌ [Supabase] Error actualizando proyecto en Supabase:', err);
     return { success: false, error: err?.message || 'Error desconocido' };
   }
 }
@@ -471,7 +494,6 @@ export async function updateProjectInSupabase(userId: string, project: Project):
  */
 export async function deleteProjectFromSupabase(userId: string, projectId: string): Promise<{ success: boolean; error?: string }> {
   try {
-    // 1. Delete child tables
     await supabase.from('groups').delete().eq('project_id', projectId);
     await supabase.from('activities').delete().eq('project_id', projectId);
     await supabase.from('resources').delete().eq('project_id', projectId);
@@ -479,7 +501,6 @@ export async function deleteProjectFromSupabase(userId: string, projectId: strin
     await supabase.from('resource_logs').delete().eq('project_id', projectId);
     await supabase.from('ideas').delete().eq('project_id', projectId);
 
-    // 2. Delete parent project
     const { error } = await supabase
       .from('projects')
       .delete()
@@ -487,23 +508,275 @@ export async function deleteProjectFromSupabase(userId: string, projectId: strin
       .eq('user_id', userId);
 
     if (error) {
+      console.error('❌ [Supabase] Error eliminando proyecto:', error.message);
       return { success: false, error: error.message };
     }
+
+    console.log('✅ [Supabase] Proyecto eliminado correctamente:', projectId);
     return { success: true };
   } catch (err: any) {
-    console.error('Error eliminando proyecto de Supabase:', err);
+    console.error('❌ [Supabase] Error eliminando proyecto de Supabase:', err);
     return { success: false, error: err?.message || 'Error desconocido' };
   }
 }
 
+// ==========================================
+// GRANULAR / ATOMIC OPERATIONS IN SUPABASE
+// ==========================================
+
+export async function saveGroupToSupabase(projectId: string, group: ActivityGroup): Promise<void> {
+  try {
+    const row = {
+      group_id: group.id,
+      project_id: projectId,
+      group_code: group.code || '',
+      group_name: group.name,
+      color: group.color || '#3b82f6',
+      show_box: group.showBox ?? true,
+      type: group.type || 'activity',
+    };
+    const { error } = await supabase.from('groups').upsert([row], { onConflict: 'group_id' });
+    if (error) console.error('❌ [Supabase] Error upserting group:', error.message);
+    else console.log('✅ [Supabase] Grupo guardado exitosamente:', group.name, row);
+  } catch (err) {
+    console.error('❌ [Supabase] Error en saveGroupToSupabase:', err);
+  }
+}
+
+export async function removeGroupFromSupabase(projectId: string, groupId: string): Promise<void> {
+  try {
+    const { error } = await supabase.from('groups').delete().eq('group_id', groupId).eq('project_id', projectId);
+    if (error) console.error('❌ [Supabase] Error deleting group:', error.message);
+    else console.log('✅ [Supabase] Grupo eliminado exitosamente:', groupId);
+  } catch (err) {
+    console.error('❌ [Supabase] Error en removeGroupFromSupabase:', err);
+  }
+}
+
+export async function saveActivityToSupabase(projectId: string, activity: Activity): Promise<void> {
+  try {
+    const row = {
+      activity_id: activity.id,
+      project_id: projectId,
+      group_id: activity.groupId || null,
+      activity_code: activity.code || '',
+      name: activity.name,
+      color: activity.color || '#3b82f6',
+      start_date: activity.startDate,
+      has_end_date: !!activity.hasEndDate,
+      end_date: activity.endDate || null,
+      is_completed: !!activity.isCompleted,
+      completed_date: activity.completedDate || null,
+      schedule_type: activity.scheduleType || 'daily',
+      active_days: activity.activeDays || [0, 1, 2, 3, 4, 5, 6],
+      block_size: activity.blockSize ?? null,
+      cluster_size: activity.clusterSize ?? null,
+      day_value: activity.dayValue ?? null,
+      sub_activities_json: activity.subActivities || [],
+    };
+    const { error } = await supabase.from('activities').upsert([row], { onConflict: 'activity_id' });
+    if (error) console.error('❌ [Supabase] Error upserting activity:', error.message);
+    else console.log('✅ [Supabase] Actividad guardada exitosamente:', activity.name, row);
+  } catch (err) {
+    console.error('❌ [Supabase] Error en saveActivityToSupabase:', err);
+  }
+}
+
+export async function removeActivityFromSupabase(projectId: string, activityId: string): Promise<void> {
+  try {
+    const { error } = await supabase.from('activities').delete().eq('activity_id', activityId).eq('project_id', projectId);
+    if (error) console.error('❌ [Supabase] Error deleting activity:', error.message);
+    else console.log('✅ [Supabase] Actividad eliminada exitosamente:', activityId);
+  } catch (err) {
+    console.error('❌ [Supabase] Error en removeActivityFromSupabase:', err);
+  }
+}
+
+export async function saveResourceToSupabase(projectId: string, resource: Resource): Promise<void> {
+  try {
+    const row = {
+      resource_id: resource.id,
+      project_id: projectId,
+      group_id: resource.groupId || null,
+      resource_code: resource.code || '',
+      name: resource.name,
+      has_cost: !!resource.hasCost,
+      cost: resource.cost ?? 0,
+      has_duration_status: !!resource.hasDurationStatus,
+      last_renewed_date: resource.lastRenewedDate || null,
+      possession_status: resource.possessionStatus || 'se_tiene',
+      availability_status: resource.availabilityStatus || 'disponible',
+      consumption_type: resource.consumptionType || 'durable_seasonal',
+      cycles_json: resource.cycles || [],
+      notes: resource.notes || null,
+      resource_nature: resource.resourceNature || 'expense',
+      order_index: resource.order ?? 0,
+    };
+    const { error } = await supabase.from('resources').upsert([row], { onConflict: 'resource_id' });
+    if (error) console.error('❌ [Supabase] Error upserting resource:', error.message);
+    else console.log('✅ [Supabase] Recurso guardado exitosamente:', resource.name, row);
+  } catch (err) {
+    console.error('❌ [Supabase] Error en saveResourceToSupabase:', err);
+  }
+}
+
+export async function removeResourceFromSupabase(projectId: string, resourceId: string): Promise<void> {
+  try {
+    const { error } = await supabase.from('resources').delete().eq('resource_id', resourceId).eq('project_id', projectId);
+    if (error) console.error('❌ [Supabase] Error deleting resource:', error.message);
+    else console.log('✅ [Supabase] Recurso eliminado exitosamente:', resourceId);
+  } catch (err) {
+    console.error('❌ [Supabase] Error en removeResourceFromSupabase:', err);
+  }
+}
+
+export async function saveCompletionLogToSupabase(projectId: string, logKey: string, completed: boolean): Promise<void> {
+  try {
+    if (completed) {
+      const parsed = parseCompletionLogKey(logKey);
+      const row = {
+        log_key: logKey,
+        project_id: projectId,
+        activity_id: parsed.activityId,
+        sub_activity_id: parsed.subActivityId,
+        log_date: parsed.dateStr,
+        completed: true,
+      };
+      const { error } = await supabase.from('completion_logs').upsert([row], { onConflict: 'log_key' });
+      if (error) console.error('❌ [Supabase] Error upserting completion_log:', error.message);
+      else console.log('✅ [Supabase] Completion log guardado:', logKey);
+    } else {
+      const { error } = await supabase.from('completion_logs').delete().eq('log_key', logKey).eq('project_id', projectId);
+      if (error) console.error('❌ [Supabase] Error deleting completion_log:', error.message);
+      else console.log('✅ [Supabase] Completion log desmarcado (eliminado):', logKey);
+    }
+  } catch (err) {
+    console.error('❌ [Supabase] Error en saveCompletionLogToSupabase:', err);
+  }
+}
+
+export async function saveResourceLogToSupabase(projectId: string, logKey: string, log: DailyResourceLog): Promise<void> {
+  try {
+    const parsed = parseResourceLogKey(logKey);
+    const row = {
+      log_key: logKey,
+      project_id: projectId,
+      resource_id: parsed.resourceId,
+      log_date: parsed.dateStr,
+      cost: log.cost ?? 0,
+      bought: !!log.bought,
+      renewed: !!log.renewed,
+      state: log.state || null,
+    };
+    const { error } = await supabase.from('resource_logs').upsert([row], { onConflict: 'log_key' });
+    if (error) console.error('❌ [Supabase] Error upserting resource_log:', error.message);
+    else console.log('✅ [Supabase] Resource log guardado:', logKey, row);
+  } catch (err) {
+    console.error('❌ [Supabase] Error en saveResourceLogToSupabase:', err);
+  }
+}
+
+export async function removeResourceLogFromSupabase(projectId: string, logKey: string): Promise<void> {
+  try {
+    const { error } = await supabase.from('resource_logs').delete().eq('log_key', logKey).eq('project_id', projectId);
+    if (error) console.error('❌ [Supabase] Error deleting resource_log:', error.message);
+    else console.log('✅ [Supabase] Resource log eliminado:', logKey);
+  } catch (err) {
+    console.error('❌ [Supabase] Error en removeResourceLogFromSupabase:', err);
+  }
+}
+
+export async function saveIdeaToSupabase(projectId: string, idea: Idea): Promise<void> {
+  try {
+    const row = {
+      idea_id: idea.id,
+      project_id: projectId,
+      title: idea.title,
+      box_color: idea.boxColor || '#FFFFFF',
+      content_html: idea.contentHtml || null,
+      phrases_json: idea.phrases || [],
+      order_index: idea.order ?? 0,
+      collapsed: !!idea.collapsed,
+    };
+    const { error } = await supabase.from('ideas').upsert([row], { onConflict: 'idea_id' });
+    if (error) console.error('❌ [Supabase] Error upserting idea:', error.message);
+    else console.log('✅ [Supabase] Idea guardada exitosamente:', idea.title, row);
+  } catch (err) {
+    console.error('❌ [Supabase] Error en saveIdeaToSupabase:', err);
+  }
+}
+
+export async function removeIdeaFromSupabase(projectId: string, ideaId: string): Promise<void> {
+  try {
+    const { error } = await supabase.from('ideas').delete().eq('idea_id', ideaId).eq('project_id', projectId);
+    if (error) console.error('❌ [Supabase] Error deleting idea:', error.message);
+    else console.log('✅ [Supabase] Idea eliminada exitosamente:', ideaId);
+  } catch (err) {
+    console.error('❌ [Supabase] Error en removeIdeaFromSupabase:', err);
+  }
+}
+
+/**
+ * Real-time subscription to any change across project tables.
+ * When desktop or mobile updates any row for this project, the listener triggers onUpdate().
+ */
+export function subscribeToProjectRealtime(projectId: string, onUpdate: () => void) {
+  console.log('📡 [Supabase] Suscribiendo canal en tiempo real para proyecto:', projectId);
+
+  const channel = supabase
+    .channel(`project_changes_${projectId}`)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', filter: `project_id=eq.${projectId}` },
+      (payload) => {
+        console.log('⚡ [Supabase Realtime] Cambio detectado en tabla:', payload.table, payload.eventType);
+        onUpdate();
+      }
+    )
+    .subscribe((status) => {
+      console.log(`📡 [Supabase Realtime] Estado de suscripción (${projectId}):`, status);
+    });
+
+  return () => {
+    console.log('🔌 [Supabase Realtime] Desconectando canal para proyecto:', projectId);
+    supabase.removeChannel(channel);
+  };
+}
+
+// Helper key parsers
+function parseCompletionLogKey(key: string): { activityId: string; subActivityId: string | null; dateStr: string } {
+  const lastUnderscore = key.lastIndexOf('_');
+  if (lastUnderscore === -1) {
+    return { activityId: key, subActivityId: null, dateStr: new Date().toISOString().slice(0, 10) };
+  }
+  const dateStr = key.substring(lastUnderscore + 1);
+  const remainder = key.substring(0, lastUnderscore);
+  const secondUnderscore = remainder.lastIndexOf('_');
+  if (secondUnderscore === -1) {
+    return { activityId: remainder, subActivityId: null, dateStr };
+  }
+  const subOrMain = remainder.substring(secondUnderscore + 1);
+  const activityId = remainder.substring(0, secondUnderscore);
+  return {
+    activityId,
+    subActivityId: subOrMain === 'main' ? null : subOrMain,
+    dateStr,
+  };
+}
+
+function parseResourceLogKey(key: string): { resourceId: string; dateStr: string } {
+  const lastUnderscore = key.lastIndexOf('_');
+  if (lastUnderscore === -1) {
+    return { resourceId: key, dateStr: new Date().toISOString().slice(0, 10) };
+  }
+  return {
+    resourceId: key.substring(0, lastUnderscore),
+    dateStr: key.substring(lastUnderscore + 1),
+  };
+}
+
 /**
  * IMPORT TXT TO SUPABASE:
- * 1. Reads the .txt string.
- * 2. Finds text between === PLANMATRIX_RAW_DATA_START === and === PLANMATRIX_RAW_DATA_END ===.
- * 3. Extracts that JSON.
- * 4. Inserts/upserts project record in `projects` (project_id, user_id, project_name).
- * 5. Uses supabase.from('...').insert() to save each array (groups, activities, resources, completionLogs, resourceLogs, ideas)
- *    into their respective Supabase tables assigning them the correct `project_id`.
  */
 export async function importProjectFromTXTToSupabase(
   txtContent: string,
@@ -541,7 +814,6 @@ export async function importProjectFromTXTToSupabase(
       resourceLogs: rawProject.resourceLogs || {},
     };
 
-    // 1. Save into `projects` table (project_id, user_id, project_name)
     const { error: projError } = await supabase.from('projects').upsert([
       {
         project_id: projectId,
@@ -551,28 +823,22 @@ export async function importProjectFromTXTToSupabase(
     ], { onConflict: 'project_id' });
 
     if (projError) {
-      console.warn('Aviso al insertar en tabla projects:', projError.message);
+      console.warn('⚠️ [Supabase] Aviso al insertar en tabla projects:', projError.message);
     }
 
-    // 2. Save arrays into respective tables in Supabase (groups, activities, resources, etc.)
     await saveProjectArraysToSupabase(projectId, project);
-
     return { success: true, project };
   } catch (err: any) {
-    console.error('Error importando TXT a Supabase:', err);
+    console.error('❌ [Supabase] Error importando TXT a Supabase:', err);
     return { success: false, error: err?.message || 'Error al importar archivo TXT' };
   }
 }
 
 /**
  * EXPORT TXT FROM SUPABASE:
- * Reads from all Supabase tables (projects, groups, activities, resources, completion_logs, resource_logs, ideas)
- * for the given project_id and reconstructs the TXT export file with the human-readable summary
- * and the exact raw JSON block between === PLANMATRIX_RAW_DATA_START === and === PLANMATRIX_RAW_DATA_END ===.
  */
 export async function exportProjectFromSupabaseToTXT(projectId: string, fallbackProject?: Project): Promise<string> {
   try {
-    // 1. Fetch project name
     const { data: projData } = await supabase
       .from('projects')
       .select('project_id, project_name')
@@ -580,11 +846,8 @@ export async function exportProjectFromSupabaseToTXT(projectId: string, fallback
       .maybeSingle();
 
     const projectName = projData?.project_name || fallbackProject?.name || 'Mi Proyecto';
-
-    // 2. Fetch all child data from Supabase tables
     const projectFromSupabase = await loadFullProjectFromSupabase(projectId, projectName);
 
-    // If Supabase returned empty child tables but fallbackProject is provided with local data, merge cleanly
     const finalProject: Project = {
       id: projectId,
       name: projectName,
@@ -598,10 +861,9 @@ export async function exportProjectFromSupabaseToTXT(projectId: string, fallback
       resourceLogs: (projectFromSupabase?.resourceLogs && Object.keys(projectFromSupabase.resourceLogs).length > 0) ? projectFromSupabase.resourceLogs : (fallbackProject?.resourceLogs || {}),
     };
 
-    // 3. Reconstruct exact TXT format
     return exportProjectToTXT(finalProject);
   } catch (err) {
-    console.warn('Error leyendo desde Supabase para exportar TXT, usando datos locales:', err);
+    console.warn('⚠️ [Supabase] Error leyendo desde Supabase para exportar TXT, usando datos locales:', err);
     if (fallbackProject) {
       return exportProjectToTXT(fallbackProject);
     }

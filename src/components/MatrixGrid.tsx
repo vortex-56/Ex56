@@ -526,21 +526,21 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
       <div className="p-3 sm:p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50/80">
         
         {/* Left: Search & Group Filter */}
-        <div className="flex items-center gap-2 flex-1 w-full sm:w-auto">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-1 w-full sm:w-auto">
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Buscar actividad..."
-            className="px-3 py-1.5 sm:py-2 text-xs sm:text-sm bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 w-1/2 sm:w-48 font-medium"
+            placeholder="Buscar..."
+            className="px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 w-20 xs:w-24 sm:w-48 shrink-0 font-medium placeholder:text-slate-400"
           />
 
-          <div className="flex items-center gap-1.5 flex-1 sm:flex-none min-w-0">
-            <SlidersHorizontal className="w-4 h-4 text-slate-400 shrink-0 hidden xs:inline" />
+          <div className="flex items-center gap-1 sm:gap-1.5 flex-1 min-w-[100px]">
+            <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400 shrink-0 hidden xs:inline" />
             <select
               value={activeFilterGroup || ''}
               onChange={(e) => onSetFilterGroup(e.target.value === '' ? null : e.target.value)}
-              className="text-xs sm:text-sm bg-white border border-slate-200 rounded-xl px-2.5 py-1.5 sm:py-2 text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 w-full sm:w-auto truncate font-medium"
+              className="text-xs sm:text-sm bg-white border border-slate-200 rounded-xl px-2 pr-6 py-1.5 sm:py-2 text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 w-full truncate font-medium cursor-pointer"
             >
               <option value="">Todos los grupos ({filteredActivities.length})</option>
               {activityGroups.map((g) => (
@@ -555,15 +555,16 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
           <button
             type="button"
             onClick={() => setIsAnalyzerOpen(prev => !prev)}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 sm:py-2 text-xs sm:text-sm font-bold rounded-xl transition-all border cursor-pointer whitespace-nowrap shrink-0 active:scale-95 ${
+            className={`inline-flex items-center gap-1 sm:gap-1.5 px-2 xs:px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm font-bold rounded-xl transition-all border cursor-pointer whitespace-nowrap shrink-0 active:scale-95 ${
               isAnalyzerOpen
                 ? 'bg-amber-400 text-slate-950 border-amber-500 shadow-xs ring-2 ring-amber-400/30'
                 : 'bg-white text-slate-700 border-slate-200 hover:bg-amber-50 hover:text-amber-900 hover:border-amber-300 shadow-2xs'
             }`}
             title="Analizar actividades: abre la línea temporal con inicio y fin"
           >
-            <ActivityIcon className="w-4 h-4 text-amber-600 shrink-0" />
-            <span>Analizar actividades</span>
+            <ActivityIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-600 shrink-0" />
+            <span className="hidden xs:inline">Analizar actividades</span>
+            <span className="xs:hidden">Analizar</span>
             {analyzedActivityIds.length > 0 && (
               <span className="px-1.5 py-0.2 rounded-full text-[10px] font-extrabold bg-slate-900 text-amber-400">
                 {analyzedActivityIds.length}

@@ -46,10 +46,24 @@ import { supabase } from './lib/supabaseClient';
 import { LoginScreen } from './components/LoginScreen';
 import { 
   loadUserProjectsFromSupabase, 
+  loadFullProjectFromSupabase,
   insertProjectIntoSupabase, 
   updateProjectInSupabase, 
   deleteProjectFromSupabase,
-  importProjectFromTXTToSupabase
+  saveGroupToSupabase,
+  removeGroupFromSupabase,
+  saveActivityToSupabase,
+  removeActivityFromSupabase,
+  saveResourceToSupabase,
+  removeResourceFromSupabase,
+  saveCompletionLogToSupabase,
+  saveResourceLogToSupabase,
+  removeResourceLogFromSupabase,
+  saveIdeaToSupabase,
+  removeIdeaFromSupabase,
+  subscribeToProjectRealtime,
+  importProjectFromTXTToSupabase,
+  exportProjectFromSupabaseToTXT
 } from './lib/supabaseProjects';
 
 export default function App() {
@@ -136,10 +150,11 @@ export default function App() {
   // Handler to initiate Google OAuth from Guest Banner
   const handleConnectWithGoogle = useCallback(async () => {
     try {
+      const redirectUrl = window.location.href.split('#')[0].split('?')[0];
       await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: window.location.origin,
+          redirectTo: redirectUrl,
         },
       });
     } catch (err: any) {
@@ -269,6 +284,29 @@ export default function App() {
     };
   }, [user]);
 
+  // Real-time synchronization: listen for remote updates from other devices (phone <-> desktop)
+  useEffect(() => {
+    if (!user || isGuest || !currentProject?.id) return;
+
+    const projectId = currentProject.id;
+    const unsubscribe = subscribeToProjectRealtime(projectId, async () => {
+      console.log('⚡ [Realtime] Recibida actualización remota para proyecto:', projectId);
+      try {
+        const fresh = await loadFullProjectFromSupabase(projectId, currentProject.name);
+        setCurrentProject(fresh);
+        setProjects(prev => prev.map(p => p.id === projectId ? fresh : p));
+        setSaveToast('⚡ Sincronizado en tiempo real');
+        setTimeout(() => setSaveToast(null), 2000);
+      } catch (err) {
+        console.warn('Error al sincronizar en tiempo real:', err);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, [user, isGuest, currentProject?.id]);
+
   // Detect touch device for touch-only scrollbar hiding
   useEffect(() => {
     const checkTouch = () => {
@@ -349,9 +387,6 @@ export default function App() {
   // Save current project explicitly (LocalStorage + Supabase)
   const handleSaveProject = useCallback(async () => {
     if (!currentProject) return;
-    saveProject(currentProject);
-    const updatedList = getStoredProjects();
-    setProjects(updatedList);
     setHasUnsavedChanges(false);
 
     if (user && !isGuest) {
@@ -360,22 +395,35 @@ export default function App() {
       if (res.success) {
         setSaveToast('¡Proyecto y progreso sincronizados con Supabase!');
       } else {
-        setSaveToast('Guardado localmente');
+        setSaveToast('Error al sincronizar con Supabase: ' + (res.error || ''));
       }
     } else {
+      saveProject(currentProject);
+      const updatedList = getStoredProjects();
+      setProjects(updatedList);
       setSaveToast('¡Proyecto y progreso guardados con éxito!');
     }
     setTimeout(() => setSaveToast(null), 2500);
   }, [currentProject, user, isGuest]);
 
   // Project Management Handlers
-  const handleSelectProject = (projectId: string) => {
+  const handleSelectProject = async (projectId: string) => {
     if (hasUnsavedChanges && currentProject) {
-      handleSaveProject();
+      await handleSaveProject();
     }
     const found = projects.find(p => p.id === projectId);
     if (found) {
-      setCurrentProject(found);
+      if (user && !isGuest) {
+        try {
+          const fresh = await loadFullProjectFromSupabase(found.id, found.name);
+          setCurrentProject(fresh);
+          setProjects(prev => prev.map(p => p.id === fresh.id ? fresh : p));
+        } catch {
+          setCurrentProject(found);
+        }
+      } else {
+        setCurrentProject(found);
+      }
       setActiveProjectId(found.id);
       setHasUnsavedChanges(false);
       setSelectedActivityIds([]);
@@ -388,8 +436,6 @@ export default function App() {
   // Crear Proyecto: Inserta en Supabase tabla `projects` con user_id (solo si autenticado)
   const handleCreateProject = async (name: string) => {
     const newProj = createNewProject(name);
-    const updated = getStoredProjects();
-    setProjects(updated);
     setCurrentProject(newProj);
     setActiveProjectId(newProj.id);
     setHasUnsavedChanges(false);
@@ -405,12 +451,16 @@ export default function App() {
       const res = await insertProjectIntoSupabase(user.id, newProj);
       if (res.success) {
         setSaveToast('¡Proyecto creado y sincronizado en Supabase!');
+        setProjects(prev => [...prev.filter(p => p.id !== newProj.id), newProj]);
       } else {
-        console.warn('Proyecto guardado localmente (alerta Supabase:', res.error, ')');
-        setSaveToast('Proyecto creado (guardado localmente)');
+        console.error('Error creando proyecto en Supabase:', res.error);
+        setSaveToast('Aviso Supabase: ' + (res.error || 'Error'));
       }
       setTimeout(() => setSaveToast(null), 3000);
     } else {
+      const updated = getStoredProjects();
+      setProjects(updated);
+      saveProject(newProj);
       setSaveToast('Proyecto creado (guardado localmente)');
       setTimeout(() => setSaveToast(null), 2500);
     }
@@ -418,18 +468,28 @@ export default function App() {
 
   // Eliminar Proyecto: Elimina en LocalStorage y en Supabase (si autenticado)
   const handleDeleteProject = async (projectId: string) => {
-    deleteStoredProject(projectId);
-    const updated = getStoredProjects();
-    setProjects(updated);
-    if (currentProject?.id === projectId) {
-      const next = updated[0] || null;
-      setCurrentProject(next);
-      if (!next) {
-        setIsProjectModalOpen(true);
-      }
-    }
     if (user && !isGuest) {
       await deleteProjectFromSupabase(user.id, projectId);
+      const updated = projects.filter(p => p.id !== projectId);
+      setProjects(updated);
+      if (currentProject?.id === projectId) {
+        const next = updated[0] || null;
+        setCurrentProject(next);
+        if (!next) {
+          setIsProjectModalOpen(true);
+        }
+      }
+    } else {
+      deleteStoredProject(projectId);
+      const updated = getStoredProjects();
+      setProjects(updated);
+      if (currentProject?.id === projectId) {
+        const next = updated[0] || null;
+        setCurrentProject(next);
+        if (!next) {
+          setIsProjectModalOpen(true);
+        }
+      }
     }
   };
 
@@ -448,24 +508,9 @@ export default function App() {
     }
   };
 
-  const handleRenameProject = (newName: string, projectId?: string) => {
+  const handleRenameProject = async (newName: string, projectId?: string) => {
     const targetId = projectId || currentProject?.id;
     if (!targetId || !newName.trim()) return;
-
-    const stored = getStoredProjects();
-    const updatedList = stored.map(p => {
-      if (p.id === targetId) {
-        return {
-          ...p,
-          name: newName.trim(),
-          updatedAt: new Date().toISOString(),
-        };
-      }
-      return p;
-    });
-
-    setProjects(updatedList);
-    saveProjectsToStorage(updatedList);
 
     if (currentProject && currentProject.id === targetId) {
       const updatedCurr = {
@@ -474,7 +519,17 @@ export default function App() {
         updatedAt: new Date().toISOString(),
       };
       setCurrentProject(updatedCurr);
-      saveProject(updatedCurr);
+      setProjects(prev => prev.map(p => p.id === targetId ? updatedCurr : p));
+
+      if (user && !isGuest) {
+        await updateProjectInSupabase(user.id, updatedCurr);
+      } else {
+        saveProject(updatedCurr);
+        const stored = getStoredProjects();
+        const updatedList = stored.map(p => p.id === targetId ? updatedCurr : p);
+        setProjects(updatedList);
+        saveProjectsToStorage(updatedList);
+      }
     }
 
     setSaveToast(`Proyecto renombrado a "${newName.trim()}"`);
@@ -513,8 +568,14 @@ export default function App() {
       const key = `${activityId}_${subKey}_${dStr}`;
       if (isCurrentlyChecked) {
         delete nextLogs[key];
+        if (user && !isGuest) {
+          saveCompletionLogToSupabase(currentProject.id, key, false);
+        }
       } else {
         nextLogs[key] = true;
+        if (user && !isGuest) {
+          saveCompletionLogToSupabase(currentProject.id, key, true);
+        }
       }
     });
 
@@ -526,7 +587,9 @@ export default function App() {
 
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+    if (!user || isGuest) {
+      saveProject(updatedProject);
+    }
   };
 
   const handleToggleParentDay = (activity: Activity, dateStr: string) => {
@@ -547,8 +610,14 @@ export default function App() {
         const key = `${activity.id}_${sub.id}_${dStr}`;
         if (allChecked) {
           delete nextLogs[key];
+          if (user && !isGuest) {
+            saveCompletionLogToSupabase(currentProject.id, key, false);
+          }
         } else {
           nextLogs[key] = true;
+          if (user && !isGuest) {
+            saveCompletionLogToSupabase(currentProject.id, key, true);
+          }
         }
       }
     });
@@ -561,7 +630,9 @@ export default function App() {
 
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+    if (!user || isGuest) {
+      saveProject(updatedProject);
+    }
   };
 
   const handleToggleGroupDay = (group: ActivityGroup, dateStr: string) => {
@@ -569,6 +640,7 @@ export default function App() {
     pushUndoSnapshot();
     const logKey = `group_${group.id}_main_${dateStr}`;
     const nextLogs = { ...currentProject.completionLogs };
+    const willBeChecked = !nextLogs[logKey];
     if (nextLogs[logKey]) {
       delete nextLogs[logKey];
     } else {
@@ -581,7 +653,12 @@ export default function App() {
     };
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest) {
+      saveCompletionLogToSupabase(currentProject.id, logKey, willBeChecked);
+    } else {
+      saveProject(updatedProject);
+    }
   };
 
   // Add / Edit Activity
@@ -611,7 +688,12 @@ export default function App() {
 
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest) {
+      saveActivityToSupabase(proj.id, activityData);
+    } else {
+      saveProject(updatedProject);
+    }
   };
 
   const handleDeleteActivity = (activityId: string) => {
@@ -636,7 +718,12 @@ export default function App() {
     setCurrentProject(updatedProject);
     setSelectedActivityIds(prev => prev.filter(id => id !== activityId));
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest) {
+      removeActivityFromSupabase(currentProject.id, activityId);
+    } else {
+      saveProject(updatedProject);
+    }
   };
 
   const handleAddSubActivityQuick = (activity: Activity) => {
@@ -680,7 +767,13 @@ export default function App() {
 
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest) {
+      const act = updatedActivities.find(a => a.id === activityId);
+      if (act) saveActivityToSupabase(currentProject.id, act);
+    } else {
+      saveProject(updatedProject);
+    }
   };
 
   // Analyzer Completion Handlers:
@@ -705,6 +798,9 @@ export default function App() {
           } else {
             delete nextLogs[key];
           }
+          if (user && !isGuest) {
+            saveCompletionLogToSupabase(currentProject.id, key, markDone);
+          }
         });
       } else {
         const key = `${activity.id}_main_${dStr}`;
@@ -712,6 +808,9 @@ export default function App() {
           nextLogs[key] = true;
         } else {
           delete nextLogs[key];
+        }
+        if (user && !isGuest) {
+          saveCompletionLogToSupabase(currentProject.id, key, markDone);
         }
       }
     });
@@ -724,7 +823,9 @@ export default function App() {
 
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+    if (!user || isGuest) {
+      saveProject(updatedProject);
+    }
   };
 
   const handleToggleSubInActiveSlot = (activityId: string, subId: string, markDone: boolean) => {
@@ -744,6 +845,9 @@ export default function App() {
       } else {
         delete nextLogs[key];
       }
+      if (user && !isGuest) {
+        saveCompletionLogToSupabase(currentProject.id, key, markDone);
+      }
     });
 
     const updatedProject: Project = {
@@ -754,7 +858,9 @@ export default function App() {
 
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+    if (!user || isGuest) {
+      saveProject(updatedProject);
+    }
   };
 
   // Groups Management
@@ -778,7 +884,12 @@ export default function App() {
     };
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest) {
+      saveGroupToSupabase(currentProject.id, newGroup);
+    } else {
+      saveProject(updatedProject);
+    }
     return newGroup;
   };
 
@@ -796,7 +907,12 @@ export default function App() {
     };
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest) {
+      saveGroupToSupabase(currentProject.id, updatedGroup);
+    } else {
+      saveProject(updatedProject);
+    }
   };
 
   const handleReorderGroups = (reorderedGroups: ActivityGroup[]) => {
@@ -809,7 +925,12 @@ export default function App() {
     };
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest) {
+      reorderedGroups.forEach(g => saveGroupToSupabase(currentProject.id, g));
+    } else {
+      saveProject(updatedProject);
+    }
   };
 
   const handleDeleteGroup = (groupId: string) => {
@@ -817,6 +938,7 @@ export default function App() {
     pushUndoSnapshot();
 
     const nextGroups = currentProject.groups.filter(g => g.id !== groupId);
+    const affectedActivities = currentProject.activities.filter(a => a.groupId === groupId);
     const nextActivities = currentProject.activities.map(a =>
       a.groupId === groupId ? { ...a, groupId: null } : a
     );
@@ -830,7 +952,13 @@ export default function App() {
     if (activeFilterGroup === groupId) setActiveFilterGroup(null);
     setSelectedGroupIds(prev => prev.filter(id => id !== groupId));
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest) {
+      removeGroupFromSupabase(currentProject.id, groupId);
+      affectedActivities.forEach(a => saveActivityToSupabase(currentProject.id, { ...a, groupId: null }));
+    } else {
+      saveProject(updatedProject);
+    }
   };
 
   // Resources Management
@@ -851,7 +979,13 @@ export default function App() {
     };
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest) {
+      saveResourceToSupabase(currentProject.id, resData);
+    } else {
+      saveProject(updatedProject);
+    }
+
     setSaveToast('Recurso guardado con éxito');
     setTimeout(() => setSaveToast(null), 2000);
   };
@@ -861,8 +995,10 @@ export default function App() {
     pushUndoSnapshot();
     const currentRes = (currentProject.resources || []).filter(r => r.id !== resourceId);
     const nextResourceLogs = { ...(currentProject.resourceLogs || {}) };
+    const logsToDeleteKeys: string[] = [];
     for (const k of Object.keys(nextResourceLogs)) {
       if (k.startsWith(`${resourceId}_`)) {
+        logsToDeleteKeys.push(k);
         delete nextResourceLogs[k];
       }
     }
@@ -874,7 +1010,13 @@ export default function App() {
     };
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest) {
+      removeResourceFromSupabase(currentProject.id, resourceId);
+      logsToDeleteKeys.forEach(k => removeResourceLogFromSupabase(currentProject.id, k));
+    } else {
+      saveProject(updatedProject);
+    }
   };
 
   const handleUpdateResource = (updatedResource: Resource) => {
@@ -890,7 +1032,12 @@ export default function App() {
     };
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest) {
+      saveResourceToSupabase(currentProject.id, updatedResource);
+    } else {
+      saveProject(updatedProject);
+    }
   };
 
   const handleMoveResource = (resourceId: string, direction: 'up' | 'down') => {
@@ -932,7 +1079,13 @@ export default function App() {
 
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest) {
+      updatedRes.forEach(r => saveResourceToSupabase(currentProject.id, r));
+    } else {
+      saveProject(updatedProject);
+    }
+
     setSaveToast('Posición actualizada');
     setTimeout(() => setSaveToast(null), 1200);
   };
@@ -968,7 +1121,12 @@ export default function App() {
 
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest) {
+      saveResourceLogToSupabase(currentProject.id, key, nextResourceLogs[key]);
+    } else {
+      saveProject(updatedProject);
+    }
 
     const isNowBought = nextResourceLogs[key].bought;
     if (targetResource?.resourceNature === 'income') {
@@ -987,10 +1145,11 @@ export default function App() {
     const nextResourceLogs = { ...(currentProject.resourceLogs || {}) };
     const currentLog = nextResourceLogs[key];
 
-    nextResourceLogs[key] = {
+    const logEntry = {
       bought: currentLog?.bought ?? false,
       cost: cost,
     };
+    nextResourceLogs[key] = logEntry;
 
     const updatedProject: Project = {
       ...currentProject,
@@ -1000,21 +1159,28 @@ export default function App() {
 
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest) {
+      saveResourceLogToSupabase(currentProject.id, key, logEntry);
+    } else {
+      saveProject(updatedProject);
+    }
   };
 
   const handleUpdateResourceStatus = (resourceId: string, newAvailability: ResourceAvailability) => {
     if (!currentProject) return;
     pushUndoSnapshot();
 
+    let updatedTargetResource: Resource | undefined;
     const currentRes = (currentProject.resources || []).map(r => {
       if (r.id === resourceId) {
-        return {
+        updatedTargetResource = {
           ...r,
           availabilityStatus: newAvailability,
           possessionStatus: newAvailability === 'agotado' ? ('falta' as const) : ('disponible' as const),
           updatedAt: new Date().toISOString(),
         };
+        return updatedTargetResource;
       }
       return r;
     });
@@ -1026,7 +1192,12 @@ export default function App() {
     };
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest && updatedTargetResource) {
+      saveResourceToSupabase(currentProject.id, updatedTargetResource);
+    } else {
+      saveProject(updatedProject);
+    }
   };
 
   const handleRenewResource = (resourceId: string, dateStr: string, renewalCost?: number) => {
@@ -1038,22 +1209,25 @@ export default function App() {
     const nextResourceLogs = { ...(currentProject.resourceLogs || {}) };
     const costToUse = renewalCost !== undefined ? renewalCost : (targetResource?.hasCost ? (nextResourceLogs[key]?.cost || targetResource.cost || 0) : 0);
 
-    nextResourceLogs[key] = {
+    const newLog = {
       cost: costToUse,
       bought: true,
       renewed: true,
-      state: 'conseguido',
+      state: 'conseguido' as const,
     };
+    nextResourceLogs[key] = newLog;
 
+    let renewedResource: Resource | undefined;
     const currentRes = (currentProject.resources || []).map(r => {
       if (r.id === resourceId) {
-        return {
+        renewedResource = {
           ...r,
           availabilityStatus: 'disponible' as const,
           possessionStatus: 'disponible' as const,
           lastRenewedDate: dateStr,
           updatedAt: new Date().toISOString(),
         };
+        return renewedResource;
       }
       return r;
     });
@@ -1066,7 +1240,14 @@ export default function App() {
     };
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest) {
+      saveResourceLogToSupabase(currentProject.id, key, newLog);
+      if (renewedResource) saveResourceToSupabase(currentProject.id, renewedResource);
+    } else {
+      saveProject(updatedProject);
+    }
+
     setSaveToast(costToUse > 0 ? `¡Conseguido con S/. ${costToUse.toFixed(2)}!` : '¡Recurso conseguido!');
     setTimeout(() => setSaveToast(null), 2000);
   };
@@ -1086,22 +1267,26 @@ export default function App() {
       ? (cost !== undefined ? cost : (targetResource?.hasCost ? (existingLog?.cost && existingLog.cost > 0 ? existingLog.cost : targetResource.cost) : 0))
       : 0;
 
+    let dayLog: { cost: number; bought: boolean; renewed: boolean; state: DayResourceState };
     if (isNinguno) {
-      nextResourceLogs[key] = {
+      dayLog = {
         cost: 0,
         bought: false,
         renewed: false,
         state: 'ninguno',
       };
+      nextResourceLogs[key] = dayLog;
     } else {
-      nextResourceLogs[key] = {
+      dayLog = {
         cost: costVal,
         bought: isConseguido,
         renewed: isConseguido,
         state: state,
       };
+      nextResourceLogs[key] = dayLog;
     }
 
+    let updatedTargetRes: Resource | undefined;
     const currentRes = (currentProject.resources || []).map(r => {
       if (r.id === resourceId) {
         let nextAvail: ResourceAvailability = 'disponible';
@@ -1113,13 +1298,14 @@ export default function App() {
           nextPossession = 'falta';
         }
 
-        return {
+        updatedTargetRes = {
           ...r,
           availabilityStatus: nextAvail,
           possessionStatus: nextPossession,
           lastRenewedDate: isConseguido ? dateStr : r.lastRenewedDate,
           updatedAt: new Date().toISOString(),
         };
+        return updatedTargetRes;
       }
       return r;
     });
@@ -1132,7 +1318,13 @@ export default function App() {
     };
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest) {
+      saveResourceLogToSupabase(currentProject.id, key, dayLog);
+      if (updatedTargetRes) saveResourceToSupabase(currentProject.id, updatedTargetRes);
+    } else {
+      saveProject(updatedProject);
+    }
 
     if (isConseguido) {
       setSaveToast(costVal > 0 ? `¡Conseguido con S/. ${costVal.toFixed(2)}!` : '¡Conseguido!');
@@ -1177,6 +1369,7 @@ export default function App() {
     if (!currentProject || selectedActivityIds.length === 0) return;
     pushUndoSnapshot();
 
+    const affected = currentProject.activities.filter(a => selectedActivityIds.includes(a.id));
     const nextActivities = currentProject.activities.map(a =>
       selectedActivityIds.includes(a.id) ? { ...a, groupId } : a
     );
@@ -1184,7 +1377,12 @@ export default function App() {
     setCurrentProject(updatedProject);
     setSelectedActivityIds([]);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest) {
+      affected.forEach(a => saveActivityToSupabase(currentProject.id, { ...a, groupId }));
+    } else {
+      saveProject(updatedProject);
+    }
   };
 
   const handleBatchCreateAndAssignGroup = (groupName: string) => {
@@ -1194,39 +1392,54 @@ export default function App() {
   };
 
   const handleBatchMarkCompleted = (completed: boolean) => {
-    if (!currentProject) return;
+    if (!currentProject || selectedActivityIds.length === 0) return;
     pushUndoSnapshot();
 
     const todayString = getTodayDateString();
-    const nextActivities = currentProject.activities.map(a =>
-      selectedActivityIds.includes(a.id)
-        ? { 
-            ...a, 
-            isCompleted: completed,
-            completedDate: completed ? (a.completedDate || todayString) : null,
-          }
-        : a
-    );
+    const affectedActivities: Activity[] = [];
+    const nextActivities = currentProject.activities.map(a => {
+      if (selectedActivityIds.includes(a.id)) {
+        const updated = {
+          ...a,
+          isCompleted: completed,
+          completedDate: completed ? (a.completedDate || todayString) : null,
+        };
+        affectedActivities.push(updated);
+        return updated;
+      }
+      return a;
+    });
     const updatedProject = { ...currentProject, activities: nextActivities, updatedAt: new Date().toISOString() };
     setCurrentProject(updatedProject);
     setSelectedActivityIds([]);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest) {
+      affectedActivities.forEach(a => saveActivityToSupabase(currentProject.id, a));
+    } else {
+      saveProject(updatedProject);
+    }
     setSaveToast(completed ? 'Actividades marcadas como terminadas' : 'Actividades marcadas como en curso');
   };
 
   const handleBatchDelete = () => {
-    if (!currentProject) return;
+    if (!currentProject || selectedActivityIds.length === 0) return;
     pushUndoSnapshot();
 
+    const idsToDelete = [...selectedActivityIds];
     const nextActivities = currentProject.activities.filter(
-      a => !selectedActivityIds.includes(a.id)
+      a => !idsToDelete.includes(a.id)
     );
     const updatedProject = { ...currentProject, activities: nextActivities, updatedAt: new Date().toISOString() };
     setCurrentProject(updatedProject);
     setSelectedActivityIds([]);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest) {
+      idsToDelete.forEach(id => removeActivityFromSupabase(currentProject.id, id));
+    } else {
+      saveProject(updatedProject);
+    }
   };
 
   // Activity Reordering actions
@@ -1346,9 +1559,13 @@ export default function App() {
   const handleDeleteSelectedGroups = () => {
     if (!currentProject || selectedGroupIds.length === 0) return;
     pushUndoSnapshot();
-    const nextGroups = currentProject.groups.filter(g => !selectedGroupIds.includes(g.id));
+    const groupsToDelete = [...selectedGroupIds];
+    const nextGroups = currentProject.groups.filter(g => !groupsToDelete.includes(g.id));
+    const affectedActivities = currentProject.activities.filter(a =>
+      a.groupId && groupsToDelete.includes(a.groupId)
+    );
     const nextActivities = currentProject.activities.map(a =>
-      a.groupId && selectedGroupIds.includes(a.groupId) ? { ...a, groupId: null } : a
+      a.groupId && groupsToDelete.includes(a.groupId) ? { ...a, groupId: null } : a
     );
     const updatedProject = {
       ...currentProject,
@@ -1359,7 +1576,13 @@ export default function App() {
     setCurrentProject(updatedProject);
     setSelectedGroupIds([]);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest) {
+      groupsToDelete.forEach(id => removeGroupFromSupabase(currentProject.id, id));
+      affectedActivities.forEach(a => saveActivityToSupabase(currentProject.id, { ...a, groupId: null }));
+    } else {
+      saveProject(updatedProject);
+    }
   };
 
   // Import Handler with Supabase multi-table synchronization
@@ -1465,7 +1688,13 @@ export default function App() {
     };
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest) {
+      saveIdeaToSupabase(currentProject.id, newIdea);
+    } else {
+      saveProject(updatedProject);
+    }
+
     setSaveToast('Idea creada con éxito');
     setTimeout(() => setSaveToast(null), 2000);
   };
@@ -1483,7 +1712,13 @@ export default function App() {
     };
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest) {
+      saveIdeaToSupabase(currentProject.id, updatedIdea);
+    } else {
+      saveProject(updatedProject);
+    }
+
     setSaveToast('Idea actualizada');
     setTimeout(() => setSaveToast(null), 2000);
   };
@@ -1499,7 +1734,13 @@ export default function App() {
     };
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest) {
+      removeIdeaFromSupabase(currentProject.id, ideaId);
+    } else {
+      saveProject(updatedProject);
+    }
+
     setSaveToast('Idea eliminada');
     setTimeout(() => setSaveToast(null), 2000);
   };
@@ -1514,7 +1755,12 @@ export default function App() {
     };
     setCurrentProject(updatedProject);
     setHasUnsavedChanges(true);
-    saveProject(updatedProject);
+
+    if (user && !isGuest) {
+      reorderedIdeas.forEach(i => saveIdeaToSupabase(currentProject.id, i));
+    } else {
+      saveProject(updatedProject);
+    }
   };
 
   const handleToggleIdeaCollapse = (ideaId: string) => {
@@ -1526,7 +1772,13 @@ export default function App() {
       ),
     };
     setCurrentProject(updatedProject);
-    saveProject(updatedProject);
+
+    const targetIdea = updatedProject.ideas?.find(i => i.id === ideaId);
+    if (user && !isGuest && targetIdea) {
+      saveIdeaToSupabase(currentProject.id, targetIdea);
+    } else {
+      saveProject(updatedProject);
+    }
   };
 
   const handleOpenNewIdea = () => {
