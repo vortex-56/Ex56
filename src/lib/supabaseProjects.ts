@@ -13,13 +13,21 @@ export interface SupabaseProjectRow {
  * and hydrates their related entities (groups, activities, resources, completion_logs, resource_logs, ideas)
  * from their respective tables using `project_id`.
  */
-export async function loadUserProjectsFromSupabase(userId: string): Promise<Project[]> {
+export async function loadUserProjectsFromSupabase(userId?: string): Promise<Project[]> {
   try {
-    console.log('🔄 [Supabase] Consultando tabla projects para user_id:', userId);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user || !user.id) {
+      console.warn('⚠️ [Supabase] Debes iniciar sesión primero');
+      return [];
+    }
+    console.log('User ID al crear proyecto:', user?.id);
+    const activeUserId = user.id;
+
+    console.log('🔄 [Supabase] Consultando tabla projects para user_id:', activeUserId);
     const { data: projectRows, error } = await supabase
       .from('projects')
       .select('project_id, user_id, project_name')
-      .eq('user_id', userId);
+      .eq('user_id', activeUserId);
 
     if (error) {
       console.error('❌ [Supabase] Error al consultar la tabla projects:', error.message);
@@ -272,9 +280,16 @@ export async function loadFullProjectFromSupabase(projectId: string, projectName
  */
 export async function insertProjectIntoSupabase(userId: string, project: Project): Promise<{ success: boolean; error?: string }> {
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user || !user.id) {
+      console.error('❌ Debes iniciar sesión primero');
+      return { success: false, error: 'Debes iniciar sesión primero' };
+    }
+    console.log('User ID al crear proyecto:', user?.id);
+
     console.log('🔄 [Supabase] Insertando proyecto en tabla projects:', {
       project_id: project.id,
-      user_id: userId,
+      user_id: user.id,
       project_name: project.name,
     });
 
@@ -283,7 +298,7 @@ export async function insertProjectIntoSupabase(userId: string, project: Project
       .upsert([
         {
           project_id: project.id,
-          user_id: userId,
+          user_id: user.id,
           project_name: project.name,
         },
       ], { onConflict: 'project_id' });
@@ -311,9 +326,26 @@ export async function insertProjectIntoSupabase(userId: string, project: Project
  * into their respective Supabase tables using `project_id`.
  */
 export async function saveProjectArraysToSupabase(projectId: string, project: Project): Promise<{ success: boolean; error?: string }> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user || !user.id) {
+    console.error('❌ Debes iniciar sesión primero');
+    return { success: false, error: 'Debes iniciar sesión primero' };
+  }
+  console.log('User ID al crear proyecto:', user?.id);
+
+  // Asegura que el registro padre existe en la tabla projects con user_id del usuario logueado
+  await supabase.from('projects').upsert([
+    {
+      project_id: projectId,
+      user_id: user.id,
+      project_name: project.name || 'Mi Proyecto',
+    }
+  ], { onConflict: 'project_id' });
+
   // 1. GROUPS table (group_id, project_id, group_code, group_name, color, show_box, type)
   try {
     if (project.groups && project.groups.length > 0) {
+      console.log('User ID al crear proyecto:', user?.id);
       const rows = project.groups.map(g => ({
         group_id: g.id,
         project_id: projectId,
@@ -338,6 +370,7 @@ export async function saveProjectArraysToSupabase(projectId: string, project: Pr
   // 2. ACTIVITIES table (activity_id, project_id, group_id, activity_code, name, color, start_date, has_end_date, end_date, is_completed, completed_date, schedule_type, active_days, block_size, cluster_size, day_value, sub_activities_json)
   try {
     if (project.activities && project.activities.length > 0) {
+      console.log('User ID al crear proyecto:', user?.id);
       const rows = project.activities.map(a => ({
         activity_id: a.id,
         project_id: projectId,
@@ -372,6 +405,7 @@ export async function saveProjectArraysToSupabase(projectId: string, project: Pr
   // 3. RESOURCES table (resource_id, project_id, group_id, resource_code, name, has_cost, cost, has_duration_status, last_renewed_date, possession_status, availability_status, consumption_type, cycles_json, notes, resource_nature, order_index)
   try {
     if (project.resources && project.resources.length > 0) {
+      console.log('User ID al crear proyecto:', user?.id);
       const rows = project.resources.map(r => ({
         resource_id: r.id,
         project_id: projectId,
@@ -406,6 +440,7 @@ export async function saveProjectArraysToSupabase(projectId: string, project: Pr
   try {
     const logEntries = Object.entries(project.completionLogs || {}).filter(([_, val]) => !!val);
     if (logEntries.length > 0) {
+      console.log('User ID al crear proyecto:', user?.id);
       const rows = logEntries.map(([key]) => {
         const parsed = parseCompletionLogKey(key);
         return {
@@ -433,6 +468,7 @@ export async function saveProjectArraysToSupabase(projectId: string, project: Pr
   try {
     const resLogEntries = Object.entries(project.resourceLogs || {});
     if (resLogEntries.length > 0) {
+      console.log('User ID al crear proyecto:', user?.id);
       const rows = resLogEntries.map(([key, val]) => {
         const parsed = parseResourceLogKey(key);
         return {
@@ -461,6 +497,7 @@ export async function saveProjectArraysToSupabase(projectId: string, project: Pr
   // 6. IDEAS table (idea_id, project_id, title, box_color, content_html, phrases_json, order_index, collapsed)
   try {
     if (project.ideas && project.ideas.length > 0) {
+      console.log('User ID al crear proyecto:', user?.id);
       const rows = project.ideas.map(idea => ({
         idea_id: idea.id,
         project_id: projectId,
@@ -491,9 +528,16 @@ export async function saveProjectArraysToSupabase(projectId: string, project: Pr
  */
 export async function updateProjectInSupabase(userId: string, project: Project): Promise<{ success: boolean; error?: string }> {
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user || !user.id) {
+      console.error('❌ Debes iniciar sesión primero');
+      return { success: false, error: 'Debes iniciar sesión primero' };
+    }
+    console.log('User ID al crear proyecto:', user?.id);
+
     console.log('🔄 [Supabase] Guardando proyecto en tabla projects (upsert):', {
       project_id: project.id,
-      user_id: userId,
+      user_id: user.id,
       project_name: project.name,
     });
 
@@ -502,7 +546,7 @@ export async function updateProjectInSupabase(userId: string, project: Project):
       .upsert([
         {
           project_id: project.id,
-          user_id: userId,
+          user_id: user.id,
           project_name: project.name,
         },
       ], { onConflict: 'project_id' });
@@ -530,6 +574,13 @@ export async function updateProjectInSupabase(userId: string, project: Project):
  */
 export async function deleteProjectFromSupabase(userId: string, projectId: string): Promise<{ success: boolean; error?: string }> {
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user || !user.id) {
+      console.error('❌ Debes iniciar sesión primero');
+      return { success: false, error: 'Debes iniciar sesión primero' };
+    }
+    console.log('User ID al crear proyecto:', user?.id);
+
     await supabase.from('completion_logs').delete().eq('project_id', projectId);
     await supabase.from('resource_logs').delete().eq('project_id', projectId);
     await supabase.from('ideas').delete().eq('project_id', projectId);
@@ -541,7 +592,7 @@ export async function deleteProjectFromSupabase(userId: string, projectId: strin
       .from('projects')
       .delete()
       .eq('project_id', projectId)
-      .eq('user_id', userId);
+      .eq('user_id', user.id);
 
     if (error) {
       console.error('❌ [Supabase] Error eliminando proyecto:', error.message);
@@ -562,6 +613,18 @@ export async function deleteProjectFromSupabase(userId: string, projectId: strin
 
 export async function saveGroupToSupabase(projectId: string, group: ActivityGroup): Promise<{ success: boolean; error?: string }> {
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user || !user.id) {
+      console.error('❌ Debes iniciar sesión primero');
+      return { success: false, error: 'Debes iniciar sesión primero' };
+    }
+    console.log('User ID al crear proyecto:', user?.id);
+
+    // Asegura que el proyecto padre existe con user_id
+    await supabase.from('projects').upsert([
+      { project_id: projectId, user_id: user.id, project_name: 'Mi Proyecto' }
+    ], { onConflict: 'project_id', ignoreDuplicates: true });
+
     const row = {
       group_id: group.id,
       project_id: projectId,
@@ -586,6 +649,13 @@ export async function saveGroupToSupabase(projectId: string, group: ActivityGrou
 
 export async function removeGroupFromSupabase(projectId: string, groupId: string): Promise<{ success: boolean; error?: string }> {
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user || !user.id) {
+      console.error('❌ Debes iniciar sesión primero');
+      return { success: false, error: 'Debes iniciar sesión primero' };
+    }
+    console.log('User ID al crear proyecto:', user?.id);
+
     const { error } = await supabase.from('groups').delete().eq('group_id', groupId).eq('project_id', projectId);
     if (error) {
       console.error('❌ [Supabase] Error deleting group:', error.message);
@@ -601,6 +671,18 @@ export async function removeGroupFromSupabase(projectId: string, groupId: string
 
 export async function saveActivityToSupabase(projectId: string, activity: Activity): Promise<{ success: boolean; error?: string }> {
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user || !user.id) {
+      console.error('❌ Debes iniciar sesión primero');
+      return { success: false, error: 'Debes iniciar sesión primero' };
+    }
+    console.log('User ID al crear proyecto:', user?.id);
+
+    // Asegura que el proyecto padre existe con user_id
+    await supabase.from('projects').upsert([
+      { project_id: projectId, user_id: user.id, project_name: 'Mi Proyecto' }
+    ], { onConflict: 'project_id', ignoreDuplicates: true });
+
     const row = {
       activity_id: activity.id,
       project_id: projectId,
@@ -635,6 +717,13 @@ export async function saveActivityToSupabase(projectId: string, activity: Activi
 
 export async function removeActivityFromSupabase(projectId: string, activityId: string): Promise<{ success: boolean; error?: string }> {
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user || !user.id) {
+      console.error('❌ Debes iniciar sesión primero');
+      return { success: false, error: 'Debes iniciar sesión primero' };
+    }
+    console.log('User ID al crear proyecto:', user?.id);
+
     const { error } = await supabase.from('activities').delete().eq('activity_id', activityId).eq('project_id', projectId);
     if (error) {
       console.error('❌ [Supabase] Error deleting activity:', error.message);
@@ -650,6 +739,18 @@ export async function removeActivityFromSupabase(projectId: string, activityId: 
 
 export async function saveResourceToSupabase(projectId: string, resource: Resource): Promise<{ success: boolean; error?: string }> {
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user || !user.id) {
+      console.error('❌ Debes iniciar sesión primero');
+      return { success: false, error: 'Debes iniciar sesión primero' };
+    }
+    console.log('User ID al crear proyecto:', user?.id);
+
+    // Asegura que el proyecto padre existe con user_id
+    await supabase.from('projects').upsert([
+      { project_id: projectId, user_id: user.id, project_name: 'Mi Proyecto' }
+    ], { onConflict: 'project_id', ignoreDuplicates: true });
+
     const row = {
       resource_id: resource.id,
       project_id: projectId,
@@ -683,6 +784,13 @@ export async function saveResourceToSupabase(projectId: string, resource: Resour
 
 export async function removeResourceFromSupabase(projectId: string, resourceId: string): Promise<{ success: boolean; error?: string }> {
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user || !user.id) {
+      console.error('❌ Debes iniciar sesión primero');
+      return { success: false, error: 'Debes iniciar sesión primero' };
+    }
+    console.log('User ID al crear proyecto:', user?.id);
+
     const { error } = await supabase.from('resources').delete().eq('resource_id', resourceId).eq('project_id', projectId);
     if (error) {
       console.error('❌ [Supabase] Error deleting resource:', error.message);
@@ -698,7 +806,19 @@ export async function removeResourceFromSupabase(projectId: string, resourceId: 
 
 export async function saveCompletionLogToSupabase(projectId: string, logKey: string, completed: boolean): Promise<{ success: boolean; error?: string }> {
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user || !user.id) {
+      console.error('❌ Debes iniciar sesión primero');
+      return { success: false, error: 'Debes iniciar sesión primero' };
+    }
+    console.log('User ID al crear proyecto:', user?.id);
+
     if (completed) {
+      // Asegura que el proyecto padre existe con user_id
+      await supabase.from('projects').upsert([
+        { project_id: projectId, user_id: user.id, project_name: 'Mi Proyecto' }
+      ], { onConflict: 'project_id', ignoreDuplicates: true });
+
       const parsed = parseCompletionLogKey(logKey);
       const row = {
         log_key: logKey,
@@ -732,6 +852,18 @@ export async function saveCompletionLogToSupabase(projectId: string, logKey: str
 
 export async function saveResourceLogToSupabase(projectId: string, logKey: string, log: DailyResourceLog): Promise<{ success: boolean; error?: string }> {
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user || !user.id) {
+      console.error('❌ Debes iniciar sesión primero');
+      return { success: false, error: 'Debes iniciar sesión primero' };
+    }
+    console.log('User ID al crear proyecto:', user?.id);
+
+    // Asegura que el proyecto padre existe con user_id
+    await supabase.from('projects').upsert([
+      { project_id: projectId, user_id: user.id, project_name: 'Mi Proyecto' }
+    ], { onConflict: 'project_id', ignoreDuplicates: true });
+
     const parsed = parseResourceLogKey(logKey);
     const row = {
       log_key: logKey,
@@ -758,6 +890,13 @@ export async function saveResourceLogToSupabase(projectId: string, logKey: strin
 
 export async function removeResourceLogFromSupabase(projectId: string, logKey: string): Promise<{ success: boolean; error?: string }> {
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user || !user.id) {
+      console.error('❌ Debes iniciar sesión primero');
+      return { success: false, error: 'Debes iniciar sesión primero' };
+    }
+    console.log('User ID al crear proyecto:', user?.id);
+
     const { error } = await supabase.from('resource_logs').delete().eq('log_key', logKey).eq('project_id', projectId);
     if (error) {
       console.error('❌ [Supabase] Error deleting resource_log:', error.message);
@@ -773,6 +912,18 @@ export async function removeResourceLogFromSupabase(projectId: string, logKey: s
 
 export async function saveIdeaToSupabase(projectId: string, idea: Idea): Promise<{ success: boolean; error?: string }> {
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user || !user.id) {
+      console.error('❌ Debes iniciar sesión primero');
+      return { success: false, error: 'Debes iniciar sesión primero' };
+    }
+    console.log('User ID al crear proyecto:', user?.id);
+
+    // Asegura que el proyecto padre existe con user_id
+    await supabase.from('projects').upsert([
+      { project_id: projectId, user_id: user.id, project_name: 'Mi Proyecto' }
+    ], { onConflict: 'project_id', ignoreDuplicates: true });
+
     const row = {
       idea_id: idea.id,
       project_id: projectId,
@@ -798,6 +949,13 @@ export async function saveIdeaToSupabase(projectId: string, idea: Idea): Promise
 
 export async function removeIdeaFromSupabase(projectId: string, ideaId: string): Promise<{ success: boolean; error?: string }> {
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user || !user.id) {
+      console.error('❌ Debes iniciar sesión primero');
+      return { success: false, error: 'Debes iniciar sesión primero' };
+    }
+    console.log('User ID al crear proyecto:', user?.id);
+
     const { error } = await supabase.from('ideas').delete().eq('idea_id', ideaId).eq('project_id', projectId);
     if (error) {
       console.error('❌ [Supabase] Error deleting idea:', error.message);
@@ -879,6 +1037,13 @@ export async function importProjectFromTXTToSupabase(
   targetProjectId?: string
 ): Promise<{ success: boolean; project?: Project; error?: string }> {
   try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user || !user.id) {
+      console.error('❌ Debes iniciar sesión primero');
+      return { success: false, error: 'Debes iniciar sesión primero' };
+    }
+    console.log('User ID al crear proyecto:', user?.id);
+
     const startTag = '=== PLANMATRIX_RAW_DATA_START ===';
     const endTag = '=== PLANMATRIX_RAW_DATA_END ===';
 
@@ -912,16 +1077,20 @@ export async function importProjectFromTXTToSupabase(
     const { error: projError } = await supabase.from('projects').upsert([
       {
         project_id: projectId,
-        user_id: userId,
+        user_id: user.id,
         project_name: projectName,
       },
     ], { onConflict: 'project_id' });
 
     if (projError) {
-      console.warn('⚠️ [Supabase] Aviso al insertar en tabla projects:', projError.message);
+      console.error('❌ [Supabase] Error al insertar en tabla projects:', projError.message);
+      return { success: false, error: projError.message };
     }
 
-    await saveProjectArraysToSupabase(projectId, project);
+    const childRes = await saveProjectArraysToSupabase(projectId, project);
+    if (!childRes.success) {
+      return childRes;
+    }
     return { success: true, project };
   } catch (err: any) {
     console.error('❌ [Supabase] Error importando TXT a Supabase:', err);

@@ -305,16 +305,14 @@ export const TopBar: React.FC<TopBarProps> = ({
           {/* Estado de Sincronización en la Nube */}
           {!isGuest && (
             supabaseError ? (
-              <button
-                type="button"
-                onClick={onOpenSupabaseGuidance}
-                className="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-300 rounded-lg transition-colors cursor-pointer shadow-2xs shrink-0 animate-pulse"
-                title="Error en Supabase: Clic para ver cómo solucionarlo"
+              <div
+                className="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-bold text-rose-700 bg-rose-50 border border-rose-300 rounded-lg shadow-2xs shrink-0"
+                title={`Error en Supabase: ${supabaseError}`}
               >
                 <span className="w-2 h-2 rounded-full bg-rose-600 shrink-0" />
                 <span className="hidden xl:inline">Error Supabase</span>
                 <span className="xl:hidden">Error</span>
-              </button>
+              </div>
             ) : (
               <div
                 className="hidden xl:inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg shadow-2xs shrink-0"
@@ -484,14 +482,12 @@ export const TopBar: React.FC<TopBarProps> = ({
         {/* Derecha Mobile: Modo Invitado / Usuario y Botón Salir */}
         <div className="flex items-center gap-1 shrink-0">
           {!isGuest && supabaseError && (
-            <button
-              type="button"
-              onClick={onOpenSupabaseGuidance}
-              className="px-1.5 py-0.5 rounded bg-rose-100 border border-rose-300 text-rose-800 text-[10px] font-bold cursor-pointer animate-pulse"
-              title="Error en Supabase: Clic para ver cómo resolverlo"
+            <span
+              className="px-1.5 py-0.5 rounded bg-rose-100 border border-rose-300 text-rose-800 text-[10px] font-bold"
+              title={`Error en Supabase: ${supabaseError}`}
             >
               ⚠️ Error Nube
-            </button>
+            </span>
           )}
 
           {(onSignOut || onExitGuest) && (

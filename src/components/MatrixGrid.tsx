@@ -532,15 +532,15 @@ export const MatrixGrid: React.FC<MatrixGridProps> = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Buscar..."
-            className="px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 w-20 xs:w-24 sm:w-48 shrink-0 font-medium placeholder:text-slate-400"
+            className="px-2 sm:px-3 py-1.5 sm:py-2 text-xs sm:text-sm bg-white border border-slate-200 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 w-16 xs:w-20 sm:w-48 shrink-0 font-medium placeholder:text-slate-400"
           />
 
-          <div className="flex items-center gap-1 sm:gap-1.5 flex-1 min-w-[100px]">
+          <div className="flex items-center gap-1 sm:gap-1.5 flex-1 min-w-[75px]">
             <SlidersHorizontal className="w-3.5 h-3.5 text-slate-400 shrink-0 hidden xs:inline" />
             <select
               value={activeFilterGroup || ''}
               onChange={(e) => onSetFilterGroup(e.target.value === '' ? null : e.target.value)}
-              className="text-xs sm:text-sm bg-white border border-slate-200 rounded-xl px-2 pr-6 py-1.5 sm:py-2 text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 w-full truncate font-medium cursor-pointer"
+              className="text-xs sm:text-sm bg-white border border-slate-200 rounded-xl px-1.5 pr-5 sm:px-2 sm:pr-6 py-1.5 sm:py-2 text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 w-full truncate font-medium cursor-pointer"
             >
               <option value="">Todos los grupos ({filteredActivities.length})</option>
               {activityGroups.map((g) => (
